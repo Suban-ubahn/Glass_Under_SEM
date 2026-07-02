@@ -134,7 +134,7 @@ def build_cumulative_maps(trajectory,
 # Plotting
 # ------------------------------------------------------------
 
-def plot_map(image, title, cmap="inferno"):
+def plot_map(image, title, cmap="inferno", colorbar_label=""):
     plt.figure(figsize=(8, 6))
     plt.imshow(image.T, origin="lower", cmap=cmap)
     plt.colorbar()
@@ -149,62 +149,44 @@ def plot_map(image, title, cmap="inferno"):
 # Cross-Correlation Analysis
 # ------------------------------------------------------------
 
-def analyze_cross_correlation(holes=None, clusters=None):
-    """
-    Compute the 2D cross-correlation between the hole activity map
-    and the defect cluster map, then plot:
-      1. The full 2D cross-correlation
-      2. Its radial profile — correlation as a function of distance
-         between hole and defect cluster centres
-    """
+def compute_cross_correlation(holes=None, clusters=None):
+    from scipy.signal import fftconvolve
+
     if holes is None:
         holes    = np.load("analysis/cumulative_hole_map.npy")
     if clusters is None:
         clusters = np.load("analysis/cumulative_cluster_map.npy")
 
-    from scipy.signal import fftconvolve
-
-    # normalise each map to zero mean and unit std so the
-    # cross-correlation reflects structure, not scale
     def normalise(m):
         m = m - m.mean()
         return m / m.std()
 
-    h = normalise(holes)
-    c = normalise(clusters)
+    xcorr = fftconvolve(normalise(holes), normalise(clusters)[::-1, ::-1], mode="full")
 
-    # fftconvolve with flipped kernel = cross-correlation
-    xcorr = fftconvolve(h, c[::-1, ::-1], mode="full")
-
-    # --- plot 1: full 2D cross-correlation ---
-    plt.figure(figsize=(7, 6))
-    plt.imshow(xcorr.T, origin="lower", cmap="RdBu_r")
-    plt.colorbar().set_label("Cross-correlation (a.u.)", fontsize=9)
-    plt.title("2D Cross-Correlation: Holes vs Defect Clusters")
-    plt.xlabel("Shift dx (voxels)")
-    plt.ylabel("Shift dy (voxels)")
-    # mark the centre (zero shift)
     cx, cy = np.array(xcorr.shape) // 2
-    plt.axhline(cy, color="white", linewidth=0.5, linestyle="--")
-    plt.axvline(cx, color="white", linewidth=0.5, linestyle="--")
-    plt.tight_layout()
-    plt.savefig("cross_correlation_2d.png", dpi=300)
-    print("Saved: cross_correlation_2d.png")
+    peak   = np.unravel_index(np.argmax(xcorr), xcorr.shape)
+    print(f"Cross-correlation peak at shift: dx={peak[0]-cx}, dy={peak[1]-cy} voxels")
+    print(f"  = {(peak[0]-cx)*VOXEL_EDGE:.2f} Å, {(peak[1]-cy)*VOXEL_EDGE:.2f} Å")
 
-    # --- plot 2: radial profile ---
-    # compute distance of every pixel from the centre
-    nx, ny = xcorr.shape
-    x = np.arange(nx) - cx
-    y = np.arange(ny) - cy
+    return xcorr
+
+
+def plot_cross_correlation(xcorr):
+    cx, cy = np.array(xcorr.shape) // 2
+
+    # 2D map
+    plot_map(xcorr, "Cross_Correlation 2D", cmap="RdBu_r",
+             colorbar_label="Cross-correlation (a.u.)")
+
+    # radial profile
+    x = np.arange(xcorr.shape[0]) - cx
+    y = np.arange(xcorr.shape[1]) - cy
     X, Y = np.meshgrid(x, y, indexing="ij")
-    R = np.sqrt(X**2 + Y**2).astype(int)
+    R    = np.sqrt(X**2 + Y**2).astype(int)
 
-    max_r = min(cx, cy)
-    radii  = np.arange(0, max_r)
-    radial_mean = np.array([
-        xcorr[R == r].mean() if np.any(R == r) else 0
-        for r in radii
-    ])
+    max_r       = min(cx, cy)
+    radii       = np.arange(0, max_r)
+    radial_mean = np.array([xcorr[R == r].mean() if np.any(R == r) else 0 for r in radii])
 
     plt.figure(figsize=(7, 4))
     plt.plot(radii, radial_mean)
@@ -215,11 +197,6 @@ def analyze_cross_correlation(holes=None, clusters=None):
     plt.tight_layout()
     plt.savefig("cross_correlation_radial.png", dpi=300)
     print("Saved: cross_correlation_radial.png")
-
-    # print where the peak is
-    peak = np.unravel_index(np.argmax(xcorr), xcorr.shape)
-    print(f"Cross-correlation peak at shift: dx={peak[0]-cx}, dy={peak[1]-cy} voxels")
-    print(f"  = {(peak[0]-cx)*VOXEL_EDGE:.2f} Å, {(peak[1]-cy)*VOXEL_EDGE:.2f} Å")
 
 # ------------------------------------------------------------
 # Main
@@ -238,7 +215,11 @@ if __name__ == "__main__":
     # np.save("analysis/cumulative_hole_map.npy",    cumulative_holes)
     # np.save("analysis/cumulative_cluster_map.npy", cumulative_clusters)
 
-    # plot_map(cumulative_holes,    "Time-Integrated Hole Activity")
-    # plot_map(cumulative_clusters, "Time-Integrated Defect Cluster Activity")
+    cumulative_holes    = np.load("analysis/cumulative_hole_map.npy")
+    cumulative_clusters = np.load("analysis/cumulative_cluster_map.npy")
 
-    analyze_cross_correlation()
+    plot_map(cumulative_holes,    "Time-Integrated Hole Activity")
+    plot_map(cumulative_clusters, "Time-Integrated Defect Cluster Activity")
+
+    xcorr = compute_cross_correlation()
+    plot_cross_correlation(xcorr)

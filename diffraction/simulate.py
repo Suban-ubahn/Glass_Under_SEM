@@ -178,17 +178,18 @@ def simulate_4d_stem(atoms, output_file="diffraction/4d_stem.zarr"):
 # ------------------------------------------------------------
 
 if __name__ == "__main__":
-    # from data_io.trajectory import load_trajectory
-    # from config import TRAJECTORY_FILE
+    from data_io.trajectory import load_trajectory
+    from config import TRAJECTORY_FILE
     import zarr
 
-    # print("Loading trajectory...")
-    # trajectory = load_trajectory(TRAJECTORY_FILE)
-    # print(f"Loaded {len(trajectory)} frames")
+    print("Loading trajectory...")
+    trajectory = load_trajectory(TRAJECTORY_FILE)
+    print(f"Loaded {len(trajectory)} frames")
 
-    # avg_atoms = compute_average_structure(trajectory)
-    # avg_atoms = correct_atom_types(avg_atoms)
+    avg_atoms = compute_average_structure(trajectory)
+    avg_atoms = correct_atom_types(avg_atoms)
+    avg_atoms = avg_atoms.repeat((1, 1, 4))  # tile 4x in Z only
 
-    # diffraction_patterns = simulate_4d_stem(avg_atoms)
+    diffraction_patterns = simulate_4d_stem(avg_atoms)
     diffraction_patterns = abtem.from_zarr("diffraction/4d_stem.zarr")
     plot_mean_diffraction(diffraction_patterns)

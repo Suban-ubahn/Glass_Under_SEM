@@ -47,7 +47,8 @@ def plot_cross_correlation(xcorr):
 
 
 def plot_mean_diffraction(diffraction_patterns,
-                           save_path="diffraction/mean_diffraction.png"):
+                           save_path="diffraction/mean_diffraction_blocked.png"):
+    # mean_dp = np.array(diffraction_patterns.array.mean(axis=(0, 1)))
     mean_dp = diffraction_patterns.mean(axis=(0, 1))
     mean_dp.compute()
     blocked = mean_dp.block_direct()

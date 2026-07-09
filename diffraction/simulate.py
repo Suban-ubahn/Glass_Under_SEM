@@ -1,15 +1,25 @@
 # =============================================================
-# diffraction/simulate.py — abtem electron diffraction pipeline
+# diffraction/simulate.py — 4D-STEM simulation for ptychography
 #
-# Source: Diffractions_Ptychography/simulate_diffraction_patterns.py
-# (Already well-organised; only import paths updated.)
+# Workflow:
+#   1. Load the full MD trajectory
+#   2. Compute the time-averaged structure (average atom positions
+#      across all frames) — this is what we simulate, since the
+#      ptychographic reconstruction also integrates over time
+#   3. Run a full GridScan with a PixelatedDetector to produce
+#      the 4D dataset (scan_x, scan_y, kx, ky) that the
+#      ptychography reconstruction code expects
+#   4. Save to .zarr (abtem's preferred format for large datasets)
+#
+# The frozen-phonon averaging handles within-frame thermal motion;
+# averaging over MD frames handles between-frame structural evolution.
 # =============================================================
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-import imageio.v2 as imageio
 import abtem
+from ase import Atoms
+import time
 
 from config import (
     TYPE_TO_Z,
@@ -20,185 +30,165 @@ from config import (
     SLICE_THICKNESS,
     NUM_PHONON_CONFIGS,
     PHONON_SIGMA,
+    CONVERGENCE_SEMIANGLE_MRAD,
 )
-
-plt.rcParams["figure.dpi"]       = 100
-plt.rcParams["savefig.dpi"]      = 200
-plt.rcParams["image.interpolation"] = "bilinear"
-plt.rcParams["image.cmap"]       = "inferno"
+from visualization.plot import plot_mean_diffraction
 
 
 # ------------------------------------------------------------
-# Frame preprocessing
+# Average structure
+# ------------------------------------------------------------
+
+def compute_average_structure(trajectory):
+    """
+    Average the atomic positions across all MD frames to produce
+    a single representative structure.
+
+    The cell, element types, and periodic boundary conditions are
+    taken from the first frame (they don't change during the MD run).
+
+    Returns
+    -------
+    avg_atoms : ase.Atoms
+    """
+    print(f"Averaging positions over {len(trajectory)} frames...")
+
+    positions = np.mean(
+        [atoms.positions for atoms in trajectory], axis=0
+    )
+
+    ref       = trajectory[0]
+    avg_atoms = Atoms(
+        numbers   = ref.numbers,
+        positions = positions,
+        cell      = ref.cell,
+        pbc       = ref.pbc,
+    )
+    return avg_atoms
+
+def plot_mean_diffraction(diffraction_patterns,
+                           save_path="diffraction/mean_diffraction.png"):
+    mean_dp = np.array(diffraction_patterns.array.mean(axis=(0, 1)))
+
+    # clip the bright field disk by capping at the 95th percentile
+    # so the colorscale is set by the weaker diffuse signal, not the disk
+    vmax = np.percentile(mean_dp, 95)
+
+    plt.figure(figsize=(6, 6))
+    plt.imshow(np.log1p(mean_dp), cmap="inferno", origin="lower",
+               vmax=np.log1p(vmax))
+    plt.colorbar().set_label("log(1 + intensity) (a.u.)", fontsize=9)
+    plt.title("Mean Diffraction Pattern")
+    plt.xlabel("kx (pixels)")
+    plt.ylabel("ky (pixels)")
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
+    print(f"Saved: {save_path}")
+
+
+# ------------------------------------------------------------
+# Atom type correction  (LAMMPS int → atomic number)
 # ------------------------------------------------------------
 
 def correct_atom_types(atoms):
-    """
-    Replace LAMMPS integer type numbers with proper atomic numbers
-    so abtem knows which elements are present.
-    """
+    """Replace LAMMPS type integers with proper atomic numbers."""
     for atom in atoms:
         atom.number = TYPE_TO_Z[atom.number]
     return atoms
 
 
-def add_radii(atoms):
-    """Attach per-atom covalent/metallic radii needed by abtem."""
-    atoms.radii = np.array([TYPE_TO_RADIUS[a.number] for a in atoms])
-    return atoms
-
-
-def process_frame(frame):
-    """Apply type correction and radius assignment to one frame."""
-    frame = correct_atom_types(frame)
-    frame = add_radii(frame)
-    return frame
-
-
 # ------------------------------------------------------------
-# abtem simulation objects
+# 4D-STEM simulation
 # ------------------------------------------------------------
 
-def build_frozen_phonons(frame, sigma=PHONON_SIGMA,
-                          num_configs=NUM_PHONON_CONFIGS):
-    return abtem.FrozenPhonons(frame, num_configs=num_configs, sigmas=sigma)
+def simulate_4d_stem(atoms, output_file="diffraction/4d_stem.zarr"):
+    """
+    Run a full GridScan with a PixelatedDetector over the entire
+    sample area and save the resulting 4D dataset.
 
+    The scan sampling is set to the probe's Nyquist sampling rate,
+    which is the standard choice for ptychography.
 
-def build_potential(frozen_phonons):
-    return abtem.Potential(
+    Parameters
+    ----------
+    atoms       : ase.Atoms — the structure to simulate (already
+                  type-corrected, i.e. real atomic numbers)
+    output_file : str — path for the .zarr output
+
+    Returns
+    -------
+    diffraction_patterns : abtem DiffractionPatterns measurement
+    """
+    
+    print("Building potential...")
+    frozen_phonons = abtem.FrozenPhonons(
+        atoms,
+        num_configs = NUM_PHONON_CONFIGS,
+        sigmas      = PHONON_SIGMA,
+    )
+    potential = abtem.Potential(
         frozen_phonons,
         gpts            = GPTS,
-        projection      = "infinite",
         slice_thickness = SLICE_THICKNESS,
+        projection      = "finite",
     )
 
-
-def build_wave():
-    return abtem.PlaneWave(energy=BEAM_ENERGY_KV * 1e3)
-
-
-# ------------------------------------------------------------
-# Diffraction simulation
-# ------------------------------------------------------------
-
-def simulate_diffraction_single_frame(frame):
-    """
-    Run a frozen-phonon multislice simulation for one preprocessed
-    frame and return the averaged diffraction pattern.
-    """
-    print("  Building frozen phonons...")
-    fp        = build_frozen_phonons(frame)
-    potential = build_potential(fp)
-    wave      = build_wave()
-
-    print("  Running multislice...")
-    exit_waves = wave.multislice(potential)
-
-    print("  Computing diffraction patterns...")
-    measurement = exit_waves.diffraction_patterns(max_angle=MAX_ANGLE_MRAD)
-    measurement = measurement.mean(0)
-    measurement.compute()
-
-    return measurement
-
-
-def simulate_diffraction_trajectory(frames):
-    """Run simulate_diffraction_single_frame for every frame."""
-    results = []
-    for i, frame in enumerate(frames):
-        print(f"\nFrame {i + 1}/{len(frames)}")
-        results.append(simulate_diffraction_single_frame(frame))
-    return results
-
-
-# ------------------------------------------------------------
-# Output
-# ------------------------------------------------------------
-
-def show_diffraction_pattern(measurement, frame_index=0):
-    measurement.block_direct().show(
-        explode          = True,
-        figsize          = (8, 8),
-        cbar             = True,
-        common_color_scale = True,
-        title            = f"Diffraction pattern — Frame {frame_index}",
+    print("Building probe...")
+    probe = abtem.Probe(
+        energy           = BEAM_ENERGY_KV * 1e3,
+        semiangle_cutoff = CONVERGENCE_SEMIANGLE_MRAD,
     )
-    plt.show()
 
-
-def save_diffraction_frames(measurements,
-                             output_folder="diffraction_frames"):
-    os.makedirs(output_folder, exist_ok=True)
-    for i, m in enumerate(measurements):
-        print(f"Saving frame {i + 1}/{len(measurements)}")
-        m.block_direct().show(
-            explode          = True,
-            figsize          = (8, 8),
-            cbar             = True,
-            common_color_scale = True,
-            title            = f"Diffraction pattern — Frame {i}",
-        )
-        plt.savefig(
-            os.path.join(output_folder, f"frame_{i:04d}.png"),
-            dpi=200, bbox_inches="tight",
-        )
-        plt.close("all")
-
-
-def create_diffraction_animation(frame_folder="diffraction_frames",
-                                  output_file="diffraction_animation.mp4",
-                                  fps=10):
-    frame_files = sorted(
-        os.path.join(frame_folder, f)
-        for f in os.listdir(frame_folder)
-        if f.endswith(".png")
+    print("Building scan grid (Nyquist sampling)...")
+    scan = abtem.GridScan(
+        start      = (0, 0),
+        end        = potential.extent,
+        sampling   = 3*probe.aperture.nyquist_sampling,
     )
-    print(f"Creating animation from {len(frame_files)} frames...")
-    writer = imageio.get_writer(output_file, fps=fps)
-    for filename in frame_files:
-        writer.append_data(imageio.imread(filename))
-    writer.close()
-    print(f"Saved: {output_file}")
+    print(f"  Scan grid: {scan.shape} positions")
+    print(f"  Probe Nyquist sampling: {probe.aperture.nyquist_sampling:.3f} Å")
 
+    detector = abtem.PixelatedDetector(
+        max_angle = MAX_ANGLE_MRAD,
+        url       = output_file,   # stream directly to disk
+    )
 
-def animate_atomic_structure(frames, interval=100, save_path=None):
-    fig, ax = plt.subplots(figsize=(7, 7))
+    # Starting clock
+    t0 = time.time()
 
-    def update(frame_idx):
-        ax.clear()
-        abtem.show_atoms(frames[frame_idx], plane="xy", ax=ax, legend=True)
-        ax.set_title(f"Atomic Structure — Frame {frame_idx}")
-        return (ax,)
+    print("Running 4D-STEM scan (this will take a while)...")
+    diffraction_patterns = probe.scan(
+        potential,
+        scan      = scan,
+        detectors = detector,
+    )
 
-    ani = FuncAnimation(fig, update, frames=len(frames),
-                         interval=interval, blit=False)
-    if save_path:
-        ani.save(save_path, fps=1000 // interval, dpi=200)
-        print(f"Saved: {save_path}")
-    else:
-        plt.show()
-    return ani
+    diffraction_patterns.compute()
+    diffraction_patterns.to_zarr(output_file)
 
+    print(f"Computation time: {(time.time() - t0) / 60:.1f} minutes")
+    print(f"Saved 4D dataset to: {output_file}")
+    print(f"  Shape: {diffraction_patterns.array.shape}  "
+          f"(scan_x, scan_y, kx, ky)")
+
+    return diffraction_patterns
 
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
 
 if __name__ == "__main__":
-    from data_io.trajectory import load_trajectory
-    from config import TRAJECTORY_FILE
+    # from data_io.trajectory import load_trajectory
+    # from config import TRAJECTORY_FILE
+    import zarr
 
-    frames = load_trajectory(TRAJECTORY_FILE)
-    print(f"Loaded {len(frames)} frames")
+    # print("Loading trajectory...")
+    # trajectory = load_trajectory(TRAJECTORY_FILE)
+    # print(f"Loaded {len(trajectory)} frames")
 
-    frames = [process_frame(f) for f in frames]
+    # avg_atoms = compute_average_structure(trajectory)
+    # avg_atoms = correct_atom_types(avg_atoms)
 
-    measurements = simulate_diffraction_trajectory(frames)
-
-    save_diffraction_frames(measurements, output_folder="diffraction_frames")
-
-    create_diffraction_animation(
-        frame_folder = "diffraction_frames",
-        output_file  = "diffraction_animation.mp4",
-        fps          = 8,
-    )
+    # diffraction_patterns = simulate_4d_stem(avg_atoms)
+    diffraction_patterns = abtem.from_zarr("diffraction/4d_stem.zarr")
+    plot_mean_diffraction(diffraction_patterns)

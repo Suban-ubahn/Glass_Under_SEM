@@ -32,6 +32,7 @@ from config import (
     PHONON_SIGMA,
     CONVERGENCE_SEMIANGLE_MRAD,
 )
+
 from visualization.plot import plot_mean_diffraction
 
 
@@ -65,26 +66,6 @@ def compute_average_structure(trajectory):
         pbc       = ref.pbc,
     )
     return avg_atoms
-
-def plot_mean_diffraction(diffraction_patterns,
-                           save_path="diffraction/mean_diffraction.png"):
-    mean_dp = np.array(diffraction_patterns.array.mean(axis=(0, 1)))
-
-    # clip the bright field disk by capping at the 95th percentile
-    # so the colorscale is set by the weaker diffuse signal, not the disk
-    vmax = np.percentile(mean_dp, 95)
-
-    plt.figure(figsize=(6, 6))
-    plt.imshow(np.log1p(mean_dp), cmap="inferno", origin="lower",
-               vmax=np.log1p(vmax))
-    plt.colorbar().set_label("log(1 + intensity) (a.u.)", fontsize=9)
-    plt.title("Mean Diffraction Pattern")
-    plt.xlabel("kx (pixels)")
-    plt.ylabel("ky (pixels)")
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=300)
-    print(f"Saved: {save_path}")
-
 
 # ------------------------------------------------------------
 # Atom type correction  (LAMMPS int → atomic number)
@@ -178,18 +159,18 @@ def simulate_4d_stem(atoms, output_file="diffraction/4d_stem.zarr"):
 # ------------------------------------------------------------
 
 if __name__ == "__main__":
-    from data_io.trajectory import load_trajectory
-    from config import TRAJECTORY_FILE
     import zarr
+    # from data_io.trajectory import load_trajectory
+    # from config import TRAJECTORY_FILE
 
-    print("Loading trajectory...")
-    trajectory = load_trajectory(TRAJECTORY_FILE)
-    print(f"Loaded {len(trajectory)} frames")
+    # print("Loading trajectory...")
+    # trajectory = load_trajectory(TRAJECTORY_FILE)
+    # print(f"Loaded {len(trajectory)} frames")
 
-    avg_atoms = compute_average_structure(trajectory)
-    avg_atoms = correct_atom_types(avg_atoms)
-    avg_atoms = avg_atoms.repeat((1, 1, 4))  # tile 4x in Z only
+    # avg_atoms = compute_average_structure(trajectory)
+    # avg_atoms = correct_atom_types(avg_atoms)
+    # avg_atoms = avg_atoms.repeat((1, 1, 4))  # tile 4x in Z only
 
-    diffraction_patterns = simulate_4d_stem(avg_atoms)
+    # diffraction_patterns = simulate_4d_stem(avg_atoms)
     diffraction_patterns = abtem.from_zarr("diffraction/4d_stem.zarr")
     plot_mean_diffraction(diffraction_patterns)

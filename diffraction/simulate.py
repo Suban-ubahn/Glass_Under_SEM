@@ -33,7 +33,7 @@ from config import (
     CONVERGENCE_SEMIANGLE_MRAD,
 )
 
-from visualization.plot import plot_mean_diffraction
+from visualization.plot import plot_diffraction
 
 
 # ------------------------------------------------------------
@@ -134,9 +134,6 @@ def simulate_4d_stem(atoms, output_file="diffraction/4d_stem.zarr"):
         url       = output_file,   # stream directly to disk
     )
 
-    # Starting clock
-    t0 = time.time()
-
     print("Running 4D-STEM scan (this will take a while)...")
     diffraction_patterns = probe.scan(
         potential,
@@ -153,6 +150,79 @@ def simulate_4d_stem(atoms, output_file="diffraction/4d_stem.zarr"):
           f"(scan_x, scan_y, kx, ky)")
 
     return diffraction_patterns
+    
+def simulate_plane_wave(atoms, save_path="diffraction/plane_wave_diffraction.png"):
+    """
+    Simulate a single diffraction pattern using a plane wave
+    (equivalent to selected area electron diffraction).
+    This illuminates the entire sample at once and produces
+    a single 2D diffraction pattern.
+    """
+    print("Building potential for plane wave simulation...")
+    frozen_phonons = abtem.FrozenPhonons(
+        atoms,
+        num_configs = NUM_PHONON_CONFIGS,
+        sigmas      = PHONON_SIGMA,
+    )
+    potential = abtem.Potential(
+        frozen_phonons,
+        gpts            = GPTS,
+        slice_thickness = SLICE_THICKNESS,
+        projection      = "finite",
+    )
+
+    print("Running plane wave multislice...")
+    wave        = abtem.PlaneWave(energy=BEAM_ENERGY_KV * 1e3)
+    exit_waves  = wave.multislice(potential)
+    measurement = exit_waves.diffraction_patterns(max_angle=MAX_ANGLE_MRAD)
+    measurement = measurement.mean(0)
+    measurement.compute()
+
+    measurement.to_zarr("diffraction/plane_wave_diffraction.zarr")
+    plot_diffraction(measurement, blocked=True, save_path=save_path)
+
+# ========================
+# RESOLUTION TEST
+# ========================
+
+def resolution_test(atoms):
+    """
+    Run plane wave simulations at different resolutions and save
+    one diffraction plot per resolution level to compare quality
+    without running the full 4D-STEM scan.
+    """
+    from visualization.plot import plot_diffraction
+
+    configs = [
+        {"gpts": 128, "slice_thickness": 4, "label": "low"},
+        {"gpts": 256, "slice_thickness": 2, "label": "medium"},
+        {"gpts": 512, "slice_thickness": 1, "label": "high"},
+    ]
+
+    for cfg in configs:
+        print(f"Running resolution test: {cfg['label']} "
+              f"({cfg['gpts']} gpts, {cfg['slice_thickness']}Å slice)...")
+
+        frozen_phonons = abtem.FrozenPhonons(
+            atoms, num_configs=NUM_PHONON_CONFIGS, sigmas=PHONON_SIGMA
+        )
+        potential = abtem.Potential(
+            frozen_phonons,
+            gpts            = cfg["gpts"],
+            slice_thickness = cfg["slice_thickness"],
+            projection      = "finite",
+        )
+        wave        = abtem.PlaneWave(energy=BEAM_ENERGY_KV * 1e3)
+        exit_waves  = wave.multislice(potential)
+        measurement = exit_waves.diffraction_patterns(max_angle=MAX_ANGLE_MRAD)
+        measurement = measurement.mean(0)
+        measurement.compute()
+
+        plot_diffraction(
+            measurement,
+            blocked   = True,
+            save_path = f"diffraction/resolution_test_{cfg['label']}.png",
+        )
 
 # ------------------------------------------------------------
 # Main
@@ -160,17 +230,25 @@ def simulate_4d_stem(atoms, output_file="diffraction/4d_stem.zarr"):
 
 if __name__ == "__main__":
     import zarr
-    # from data_io.trajectory import load_trajectory
-    # from config import TRAJECTORY_FILE
+    from data_io.trajectory import load_trajectory
+    from config import TRAJECTORY_FILE
 
-    # print("Loading trajectory...")
-    # trajectory = load_trajectory(TRAJECTORY_FILE)
-    # print(f"Loaded {len(trajectory)} frames")
+    # Starting clock
+    t0 = time.time()
 
-    # avg_atoms = compute_average_structure(trajectory)
-    # avg_atoms = correct_atom_types(avg_atoms)
-    # avg_atoms = avg_atoms.repeat((1, 1, 4))  # tile 4x in Z only
+    print("Loading trajectory...")
+    trajectory = load_trajectory(TRAJECTORY_FILE)
+    print(f"Loaded {len(trajectory)} frames")
 
-    # diffraction_patterns = simulate_4d_stem(avg_atoms)
-    diffraction_patterns = abtem.from_zarr("diffraction/4d_stem.zarr")
-    plot_mean_diffraction(diffraction_patterns)
+    avg_atoms = compute_average_structure(trajectory)
+    avg_atoms = correct_atom_types(avg_atoms)
+    # avg_atoms = avg_atoms.repeat((1, 1, 4))  # tilt 4x in Z only
+
+    diffraction_patterns = simulate_4d_stem(avg_atoms)
+    # diffraction_patterns = abtem.from_zarr("diffraction/4d_stem.zarr")
+    plot_diffraction(diffraction_patterns, blocked=True, save_path="diffraction/mean_diffraction.png")
+
+    simulate_plane_wave(avg_atoms) # also generates a plot
+    resolution_test(avg_atoms)
+
+    print(f"Computation time: {(time.time() - t0) / 60:.1f} minutes")

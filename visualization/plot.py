@@ -2,6 +2,7 @@
 # visualization/plot.py — static plot functions
 # =============================================================
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -46,21 +47,35 @@ def plot_cross_correlation(xcorr):
     print("Saved: cross_correlation_radial.png")
 
 
-def plot_mean_diffraction(diffraction_patterns,
-                           save_path="diffraction/mean_diffraction_blocked.png"):
-    # mean_dp = np.array(diffraction_patterns.array.mean(axis=(0, 1)))
-    mean_dp = diffraction_patterns.mean(axis=(0, 1))
-    mean_dp.compute()
-    blocked = mean_dp.block_direct()
-    blocked.compute()
+def plot_diffraction(diffraction_patterns, blocked=True,
+                     save_path="diffraction/diffraction.png"):
+    
+    if diffraction_patterns.array.ndim == 4:
+        mean_dp = diffraction_patterns.mean(axis=(0, 1))
+        mean_dp.compute()
+    else:
+        mean_dp = diffraction_patterns
 
-    arr = np.array(blocked.array)
+    if blocked:
+        result = mean_dp.block_direct()
+        result.compute()
+    else:
+        result = mean_dp
+
+    arr = np.array(result.array)
     plt.figure(figsize=(6, 6))
     plt.imshow(np.log1p(arr / arr.max()), cmap="inferno", origin="lower")
     plt.colorbar().set_label("log(1 + normalised intensity) (a.u.)", fontsize=9)
-    plt.title("Mean Diffraction Pattern (BF blocked)")
+    title = "Mean Diffraction Pattern (BF blocked)" if blocked else "Mean Diffraction Pattern"
+    plt.title(title)
     plt.xlabel("kx (pixels)")
     plt.ylabel("ky (pixels)")
     plt.tight_layout()
+
+    if blocked:
+        base, ext = os.path.splitext(save_path)
+        save_path = f"{base}_blocked{ext}"
+
     plt.savefig(save_path, dpi=300)
+    
     print(f"Saved: {save_path}")

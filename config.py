@@ -75,7 +75,7 @@ GNN_BATCH_SIZE = 2
 
 BEAM_ENERGY_KV      = 200
 MAX_ANGLE_MRAD      = 80
-GPTS                = 256
+GPTS                = 512
 SLICE_THICKNESS     = 2
 NUM_PHONON_CONFIGS  = 4
 PHONON_SIGMA        = 0.08   # Å  — frozen phonon displacement amplitude

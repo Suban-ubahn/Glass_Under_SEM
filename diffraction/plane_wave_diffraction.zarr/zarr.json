@@ -1,0 +1,24 @@
+{
+  "attributes": {
+    "kwargs0": {
+      "sampling": [
+        0.020364487736645093,
+        0.020364487736645093
+      ],
+      "fftshift": true,
+      "ensemble_axes_metadata": [],
+      "metadata": {
+        "energy": 200000.0,
+        "base_tilt_x": 0.0,
+        "base_tilt_y": 0.0,
+        "normalization": "values",
+        "reciprocal_space": false,
+        "label": "intensity",
+        "units": "arb. unit"
+      }
+    },
+    "type0": "DiffractionPatterns"
+  },
+  "zarr_format": 3,
+  "node_type": "group"
+}

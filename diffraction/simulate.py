@@ -19,7 +19,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import abtem
 from ase import Atoms
-import time
 
 from config import (
     TYPE_TO_Z,
@@ -31,6 +30,10 @@ from config import (
     NUM_PHONON_CONFIGS,
     PHONON_SIGMA,
     CONVERGENCE_SEMIANGLE_MRAD,
+    BLOCKED_VAL,
+    SAMPLING_FACTOR,
+    TO_ZARR,
+    DEFOCUS
 )
 
 from visualization.plot import plot_diffraction
@@ -114,40 +117,63 @@ def simulate_4d_stem(atoms, output_file="diffraction/4d_stem.zarr"):
         projection      = "finite",
     )
 
+    # #  Potential visualization
+    # fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4)) 
+    # abtem.show_atoms(atoms, ax=ax1, legend=True) 
+    # visualization = (potential.build() * 0.1).show(ax=ax2) 
+
     print("Building probe...")
     probe = abtem.Probe(
         energy           = BEAM_ENERGY_KV * 1e3,
         semiangle_cutoff = CONVERGENCE_SEMIANGLE_MRAD,
+        defocus          = DEFOCUS,   # Å 
     )
+    probe.grid.match(potential)
 
     print("Building scan grid (Nyquist sampling)...")
+
+    scan_sampling = (
+        SAMPLING_FACTOR * probe.aperture.nyquist_sampling
+    )
     scan = abtem.GridScan(
         start      = (0, 0),
-        end        = potential.extent,
-        sampling   = 3*probe.aperture.nyquist_sampling,
+        end        = (1, 1),       # fractional: 1 = full cell
+        sampling   = scan_sampling,
+        fractional = True,
+        potential  = potential,
     )
     print(f"  Scan grid: {scan.shape} positions")
     print(f"  Probe Nyquist sampling: {probe.aperture.nyquist_sampling:.3f} Å")
+    print(f"  Actual scan sampling: {scan_sampling:.3f} Å")
 
     detector = abtem.PixelatedDetector(
         max_angle = MAX_ANGLE_MRAD,
-        url       = output_file,   # stream directly to disk
     )
 
     print("Running 4D-STEM scan (this will take a while)...")
+
     diffraction_patterns = probe.scan(
         potential,
         scan      = scan,
         detectors = detector,
     )
 
+    print("Computing 4D-STEM scan...")
     diffraction_patterns.compute()
-    diffraction_patterns.to_zarr(output_file)
 
-    print(f"Computation time: {(time.time() - t0) / 60:.1f} minutes")
-    print(f"Saved 4D dataset to: {output_file}")
-    print(f"  Shape: {diffraction_patterns.array.shape}  "
-          f"(scan_x, scan_y, kx, ky)")
+    print("4D-STEM computation finished.")
+    print(
+    f"  Shape: {diffraction_patterns.array.shape} "
+    f"(scan_x, scan_y, kx, ky)"
+    )
+
+    # diffraction_patterns = abtem.stack(diffraction_patterns, ("BF", "MAADF", "HAADF"))
+
+    if TO_ZARR:
+      diffraction_patterns.to_zarr(output_file)
+      print(f"Saved 4D dataset to: {output_file}")
+    else:
+        print("Zarr output disabled; dataset was not saved.")
 
     return diffraction_patterns
     
@@ -179,7 +205,7 @@ def simulate_plane_wave(atoms, save_path="diffraction/plane_wave_diffraction.png
     measurement.compute()
 
     measurement.to_zarr("diffraction/plane_wave_diffraction.zarr")
-    plot_diffraction(measurement, blocked=True, save_path=save_path)
+    plot_diffraction(measurement, blocked=BLOCKED_VAL, save_path=save_path)
 
 # ========================
 # RESOLUTION TEST
@@ -220,7 +246,7 @@ def resolution_test(atoms):
 
         plot_diffraction(
             measurement,
-            blocked   = True,
+            blocked   = BLOCKED_VAL,
             save_path = f"diffraction/resolution_test_{cfg['label']}.png",
         )
 
@@ -229,9 +255,10 @@ def resolution_test(atoms):
 # ------------------------------------------------------------
 
 if __name__ == "__main__":
-    import zarr
     from data_io.trajectory import load_trajectory
     from config import TRAJECTORY_FILE
+    import time
+
 
     # Starting clock
     t0 = time.time()
@@ -244,11 +271,18 @@ if __name__ == "__main__":
     avg_atoms = correct_atom_types(avg_atoms)
     # avg_atoms = avg_atoms.repeat((1, 1, 4))  # tilt 4x in Z only
 
-    diffraction_patterns = simulate_4d_stem(avg_atoms)
-    # diffraction_patterns = abtem.from_zarr("diffraction/4d_stem.zarr")
-    plot_diffraction(diffraction_patterns, blocked=True, save_path="diffraction/mean_diffraction.png")
+    # resolution_test(avg_atoms)
+    diffraction_patterns = simulate_4d_stem(
+        avg_atoms,
+        output_file="diffraction/4d_stem.zarr",
+    )
+    
+    plot_diffraction(
+        diffraction_patterns,
+        blocked=BLOCKED_VAL,
+        save_path="diffraction/mean_diffraction.png",
+    )
 
-    simulate_plane_wave(avg_atoms) # also generates a plot
-    resolution_test(avg_atoms)
+    # simulate_plane_wave(avg_atoms) # also generates a plot
 
     print(f"Computation time: {(time.time() - t0) / 60:.1f} minutes")

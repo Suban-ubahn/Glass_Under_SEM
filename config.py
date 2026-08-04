@@ -73,10 +73,14 @@ GNN_BATCH_SIZE = 2
 # Diffraction simulation  (diffraction/simulate.py)
 # ------------------------------------------------------------
 
-BEAM_ENERGY_KV      = 200
-MAX_ANGLE_MRAD      = 80
-GPTS                = 512
-SLICE_THICKNESS     = 2
-NUM_PHONON_CONFIGS  = 4
-PHONON_SIGMA        = 0.08   # Å  — frozen phonon displacement amplitude
-CONVERGENCE_SEMIANGLE_MRAD = 25   # mrad
+BEAM_ENERGY_KV             = 200   
+MAX_ANGLE_MRAD             = 80    
+GPTS                       = 256   
+SLICE_THICKNESS            = 1     
+NUM_PHONON_CONFIGS         = 4     
+PHONON_SIGMA               = 0.08  # Å  — frozen phonon displacement amplitude
+CONVERGENCE_SEMIANGLE_MRAD = 25    
+DEFOCUS                    = 100   
+SAMPLING_FACTOR            = 3     
+BLOCKED_VAL                = False
+TO_ZARR                    = True

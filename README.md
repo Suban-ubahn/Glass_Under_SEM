@@ -15,6 +15,16 @@ conda activate glass_sem_env
 pip install -e .
 ```
 
+This creates a `glass_sem_env` conda environment, installs all
+dependencies from `requirements.txt`, and registers the project
+as an editable package so all imports resolve correctly.
+
+After setup, activate the environment before running anything:
+
+```bash
+conda activate glass_sem_env
+```
+
 Key dependencies: `ase`, `numpy`, `scipy`, `matplotlib`, `torch`, `torch_geometric`, `abtem`.
 A full list is in `requirements.txt`.
 

@@ -75,12 +75,24 @@ GNN_BATCH_SIZE = 2
 
 BEAM_ENERGY_KV             = 200   
 MAX_ANGLE_MRAD             = 80    
-GPTS                       = 256   
+GPTS                       = 512   
 SLICE_THICKNESS            = 1     
 NUM_PHONON_CONFIGS         = 4     
 PHONON_SIGMA               = 0.08  # Å  — frozen phonon displacement amplitude
 CONVERGENCE_SEMIANGLE_MRAD = 25    
 DEFOCUS                    = 100   
-SAMPLING_FACTOR            = 3     
-BLOCKED_VAL                = False
+SAMPLING_FACTOR            = 3
 TO_ZARR                    = True
+
+# ------------------------------------------------------------
+# Simulation Plot
+# ------------------------------------------------------------
+
+BLOCKED_VAL   = False
+SCAN_POSITION = (31,7)
+
+INNER_RADIUS  = 0     # px
+OUTER_RADIUS  = None  # px
+CENTER_VAL    = None
+LOG_SCALE_VAL = True
+NORMALIZE_VAL = False

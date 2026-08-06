@@ -33,10 +33,16 @@ from config import (
     BLOCKED_VAL,
     SAMPLING_FACTOR,
     TO_ZARR,
-    DEFOCUS
+    DEFOCUS,
+    SCAN_POSITION
 )
 
-from visualization.plot import plot_diffraction
+from visualization.plot import (
+    plot_average_diffraction, 
+    plot_diffraction_single_position,
+    plot_virtual_detector_heatmap,
+    plot_detector_mask
+    )
 
 
 # ------------------------------------------------------------
@@ -205,7 +211,7 @@ def simulate_plane_wave(atoms, save_path="diffraction/plane_wave_diffraction.png
     measurement.compute()
 
     measurement.to_zarr("diffraction/plane_wave_diffraction.zarr")
-    plot_diffraction(measurement, blocked=BLOCKED_VAL, save_path=save_path)
+    plot_average_diffraction(measurement, blocked=BLOCKED_VAL, save_path=save_path)
 
 # ========================
 # RESOLUTION TEST
@@ -244,7 +250,7 @@ def resolution_test(atoms):
         measurement = measurement.mean(0)
         measurement.compute()
 
-        plot_diffraction(
+        plot_average_diffraction(
             measurement,
             blocked   = BLOCKED_VAL,
             save_path = f"diffraction/resolution_test_{cfg['label']}.png",
@@ -263,25 +269,53 @@ if __name__ == "__main__":
     # Starting clock
     t0 = time.time()
 
-    print("Loading trajectory...")
-    trajectory = load_trajectory(TRAJECTORY_FILE)
-    print(f"Loaded {len(trajectory)} frames")
+    # print("Loading trajectory...")
+    # trajectory = load_trajectory(TRAJECTORY_FILE)
+    # print(f"Loaded {len(trajectory)} frames")
 
-    avg_atoms = compute_average_structure(trajectory)
-    avg_atoms = correct_atom_types(avg_atoms)
-    # avg_atoms = avg_atoms.repeat((1, 1, 4))  # tilt 4x in Z only
+    # avg_atoms = compute_average_structure(trajectory)
+    # avg_atoms = correct_atom_types(avg_atoms)
 
     # resolution_test(avg_atoms)
-    diffraction_patterns = simulate_4d_stem(
-        avg_atoms,
-        output_file="diffraction/4d_stem.zarr",
-    )
+    # diffraction_patterns = simulate_4d_stem(avg_atoms, output_file="diffraction/4d_stem.zarr")
+    diffraction_patterns = abtem.from_zarr("diffraction/4d_stem.zarr")
     
-    plot_diffraction(
+    # plot_average_diffraction(
+    #     diffraction_patterns,
+    #     blocked=BLOCKED_VAL,
+    #     save_path="diffraction/mean_diffraction.png",
+    # )
+    
+    plot_diffraction_single_position(
         diffraction_patterns,
         blocked=BLOCKED_VAL,
-        save_path="diffraction/mean_diffraction.png",
+        scan_position=SCAN_POSITION,
+        save_path="diffraction/single_position.png",
     )
+
+    bf_image, bf_mask = plot_virtual_detector_heatmap(
+        diffraction_patterns,
+        inner_radius_px=0,
+        outer_radius_px=None,
+        center=None,
+        log_scale=False,
+        normalize=True,
+        title="Virtual Bright-Field Image",
+        save_path="diffraction/virtual_bright_field.png",
+    )
+    plot_detector_mask(bf_mask)
+
+    df_image, df_mask = plot_virtual_detector_heatmap(
+        diffraction_patterns,
+        inner_radius_px=70,
+        outer_radius_px=180,
+        center=None,
+        log_scale=True,
+        normalize=True,
+        title="Virtual Dark-Field Image",
+        save_path="diffraction/virtual_dark_field.png",
+    )
+    plot_detector_mask(df_mask)
 
     # simulate_plane_wave(avg_atoms) # also generates a plot
 

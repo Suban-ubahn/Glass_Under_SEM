@@ -1,3 +1,15 @@
 __pycache__/
 *.pyc
 scratch/
+
+# Python
+__pycache__/
+*.pyc
+visualization/__pycache__
+diffraction/__pycache__
+
+# Generated diffraction data
+diffraction/*.zarr/
+
+# Generated images
+diffraction/*.png

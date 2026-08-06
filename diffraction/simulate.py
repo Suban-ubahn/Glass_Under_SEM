@@ -293,7 +293,7 @@ if __name__ == "__main__":
         save_path="diffraction/single_position.png",
     )
 
-    bf_image, bf_mask = plot_virtual_detector_heatmap(
+    bf_image, bf_mask =git s(
         diffraction_patterns,
         inner_radius_px=0,
         outer_radius_px=None,

@@ -155,6 +155,98 @@ def compute_cross_correlation(holes=None, clusters=None):
 
     return xcorr
 
+def resample_to_match(source, target):
+    """
+    Resample `source` array to match the shape of `target`
+    using bilinear interpolation.
+
+    Used to match the abtem scan grid resolution to the
+    voxel grid resolution of the hole/defect maps.
+    """
+    from scipy.ndimage import zoom
+
+    zoom_x = target.shape[0] / source.shape[0]
+    zoom_y = target.shape[1] / source.shape[1]
+    return zoom(source, (zoom_x, zoom_y), order=1)
+
+
+def compare_abtem_to_projection_maps(
+    abtem_image,
+    holes_path    = "analysis/cumulative_hole_map.npy",
+    clusters_path = "analysis/cumulative_cluster_map.npy",
+    save_dir      = "analysis",
+):
+    """
+    Cross-correlate the abtem virtual detector heatmap with the
+    cumulative hole and defect cluster projection maps.
+
+    Parameters
+    ----------
+    abtem_image : 2D ndarray — virtual BF/DF image from
+                  plot_virtual_detector_heatmap (first return value)
+    holes_path, clusters_path : paths to the saved .npy maps
+    save_dir    : folder for output plots
+    """
+    from scipy.signal import fftconvolve
+
+    holes    = np.load(holes_path)
+    clusters = np.load(clusters_path)
+
+    # --- resample abtem image to match voxel grid ---
+    abtem_resampled = resample_to_match(abtem_image, holes)
+    print(f"abtem image shape:    {abtem_image.shape}")
+    print(f"Resampled to:         {abtem_resampled.shape}")
+    print(f"Hole map shape:       {holes.shape}")
+    print(f"Cluster map shape:    {clusters.shape}")
+
+    # --- save resampled abtem image for visual inspection ---
+    plot_map(
+        abtem_resampled,
+        title           = "abtem Virtual Detector (resampled)",
+        cmap            = "inferno",
+        colorbar_label  = "Intensity (a.u.)",
+    )
+
+    # --- normalise all three maps ---
+    def normalise(m):
+        m = m - m.mean()
+        return m / (m.std() + 1e-10)
+
+    a = normalise(abtem_resampled)
+    h = normalise(holes)
+    c = normalise(clusters)
+
+    # --- cross-correlate abtem vs holes ---
+    xcorr_holes = fftconvolve(a, h[::-1, ::-1], mode="full")
+    cx, cy = np.array(xcorr_holes.shape) // 2
+    peak   = np.unravel_index(np.argmax(xcorr_holes), xcorr_holes.shape)
+    print(f"\nabtem × holes peak shift: "
+          f"dx={peak[0]-cx}, dy={peak[1]-cy} voxels"
+          f" = {(peak[0]-cx)*VOXEL_EDGE:.2f} Å, "
+          f"{(peak[1]-cy)*VOXEL_EDGE:.2f} Å")
+
+    plot_map(
+        xcorr_holes,
+        title          = "Cross-Correlation abtem vs Holes",
+        cmap           = "RdBu_r",
+        colorbar_label = "Cross-correlation (a.u.)",
+    )
+
+    # --- cross-correlate abtem vs defect clusters ---
+    xcorr_clusters = fftconvolve(a, c[::-1, ::-1], mode="full")
+    peak = np.unravel_index(np.argmax(xcorr_clusters), xcorr_clusters.shape)
+    print(f"abtem × clusters peak shift: "
+          f"dx={peak[0]-cx}, dy={peak[1]-cy} voxels"
+          f" = {(peak[0]-cx)*VOXEL_EDGE:.2f} Å, "
+          f"{(peak[1]-cy)*VOXEL_EDGE:.2f} Å")
+
+    plot_map(
+        xcorr_clusters,
+        title          = "Cross-Correlation abtem vs Defect Clusters",
+        cmap           = "RdBu_r",
+        colorbar_label = "Cross-correlation (a.u.)",
+    )
+
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------

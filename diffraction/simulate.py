@@ -263,6 +263,7 @@ def resolution_test(atoms):
 if __name__ == "__main__":
     from data_io.trajectory import load_trajectory
     from config import TRAJECTORY_FILE
+    from analysis.projection_maps import compare_abtem_to_projection_maps
     import time
 
 
@@ -293,7 +294,7 @@ if __name__ == "__main__":
         save_path="diffraction/single_position.png",
     )
 
-    bf_image, bf_mask =git s(
+    bf_image, bf_mask = plot_virtual_detector_heatmap(
         diffraction_patterns,
         inner_radius_px=0,
         outer_radius_px=None,
@@ -316,6 +317,8 @@ if __name__ == "__main__":
         save_path="diffraction/virtual_dark_field.png",
     )
     plot_detector_mask(df_mask)
+
+    compare_abtem_to_projection_maps(bf_image)
 
     # simulate_plane_wave(avg_atoms) # also generates a plot
 

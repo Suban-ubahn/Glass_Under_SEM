@@ -12,4 +12,8 @@ diffraction/__pycache__
 diffraction/*.zarr/
 
 # Generated images
-diffraction/*.pngexternal/pypty/
+diffraction/*.png
+external/
+
+# General outputs
+outputs/

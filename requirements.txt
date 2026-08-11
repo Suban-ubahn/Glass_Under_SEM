@@ -14,8 +14,6 @@ click==8.3.1
 cloudpickle==3.1.2
 comm==0.2.3
 contourpy==1.3.3
-cuda-pathfinder==1.5.4
-cupy==14.1.0
 cycler==0.12.1
 cytoolz==1.1.0
 dask==2026.3.0
@@ -30,7 +28,6 @@ filelock==3.25.2
 fonttools==4.62.0
 frozenlist==1.8.0
 fsspec==2026.3.0
-glass_under_sem==0.1.0
 google-crc32c==1.8.0
 h2==4.3.0
 h5py==3.16.0
@@ -56,7 +53,7 @@ locket==1.0.0
 MarkupSafe==3.0.3
 matplotlib==3.10.8
 matplotlib-inline==0.2.1
-mpmath==1.4.1
+mpmath
 msgpack==1.1.2
 multidict==6.7.1
 munkres==1.1.4
@@ -82,7 +79,7 @@ ptyprocess==0.7.0
 pure_eval==0.2.3
 pybind11==3.0.3
 pybind11-global==3.0.3
-pyFFTW==0.0.0
+pyFFTW==0.15.1
 Pygments==2.20.0
 pyparsing==3.3.2
 PySocks==1.7.1
@@ -103,7 +100,7 @@ toolz==1.1.0
 torch==2.9.1
 torch-geometric==2.7.0
 torchaudio==2.9.1
-torchvision==0.25.0
+torchvision==0.24.1
 torchvision-extra-decoders==0.0.2
 tornado==6.5.5
 tqdm==4.67.3

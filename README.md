@@ -10,14 +10,18 @@ The pipeline has three analysis branches — free-volume hole detection, graph-b
 
 Requires conda. After cloning the repository:
 
-```bash
-conda activate glass_sem_env
-pip install -e .
-```
+    conda env create -f environment.yml -n glass_sem_env    # or: conda create -n glass_sem_env python=3.11
+    conda activate glass_sem_env
+    pip install -r requirements.txt
 
 This creates a `glass_sem_env` conda environment, installs all
-dependencies from `requirements.txt`, and registers the project
-as an editable package so all imports resolve correctly.
+dependencies from `requirements.txt`— it does **not** install the
+project itself as a package.
+
+Only run the next step if you want `import config`, `from holes...`,
+etc. to work from any directory (recommended for normal use):
+
+    pip install -e .
 
 After setup, activate the environment before running anything:
 

@@ -270,15 +270,15 @@ if __name__ == "__main__":
     # Starting clock
     t0 = time.time()
 
-    # print("Loading trajectory...")
-    # trajectory = load_trajectory(TRAJECTORY_FILE)
-    # print(f"Loaded {len(trajectory)} frames")
+    print("Loading trajectory...")
+    trajectory = load_trajectory(TRAJECTORY_FILE)
+    print(f"Loaded {len(trajectory)} frames")
 
-    # avg_atoms = compute_average_structure(trajectory)
-    # avg_atoms = correct_atom_types(avg_atoms)
+    avg_atoms = compute_average_structure(trajectory)
+    avg_atoms = correct_atom_types(avg_atoms)
 
     # resolution_test(avg_atoms)
-    # diffraction_patterns = simulate_4d_stem(avg_atoms, output_file="diffraction/4d_stem.zarr")
+    diffraction_patterns = simulate_4d_stem(avg_atoms, output_file="diffraction/4d_stem.zarr")
     diffraction_patterns = abtem.from_zarr("diffraction/4d_stem.zarr")
     
     # plot_average_diffraction(

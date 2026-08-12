@@ -1,6 +1,6 @@
 # Glass Under SEM
 
-Computational pipeline for studying Zr₅₀Cu₅₀ metallic glass under simulated scanning/transmission electron microscopy conditions. Built around a LAMMPS molecular dynamics trajectory (`trj.zr50cu50_6750_vib`).
+Computational pipeline for studying amorpheous materials under simulated scanning/transmission electron microscopy conditions. Built around a LAMMPS molecular dynamics trajectory (`trj.zr50cu50_6750_vib`).
 
 The pipeline has three analysis branches — free-volume hole detection, graph-based structural defect detection, and 4D-STEM diffraction simulation — which are combined into time-integrated 2D projection maps and cross-correlated to study the spatial relationship between holes and defects.
 
@@ -19,7 +19,7 @@ dependencies from `requirements.txt`— it does **not** install the
 project itself as a package.
 
 Only run the next step if you want `import config`, `from holes...`,
-etc. to work from any directory (recommended for normal use):
+etc. to work from any directory:
 
     pip install -e .
 

@@ -254,7 +254,7 @@ def plot_virtual_detector_heatmap(
     if hasattr(array, "compute"):
         array = array.compute()
 
-    if hasattr(array, "get"):``
+    if hasattr(array, "get"):
         array = array.get()
 
     array = np.asarray(array)

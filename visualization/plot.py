@@ -400,3 +400,53 @@ def plot_detector_mask(
     plt.close()
 
     print(f"Saved: {save_path}")
+
+def plot_pypty_reconstruction(obj_phase, obj_amp, probe_amp, output_path=None):
+    """
+    Plot a pypty single-slice reconstruction: object phase, object amplitude,
+    and probe amplitude, side by side.
+    """
+    if hasattr(obj_phase, "compute"):
+        obj_phase = obj_phase.compute()
+    if hasattr(obj_phase, "get"):
+        obj_phase = obj_phase.get()
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    axes[0].imshow(obj_phase.T, cmap="gray")
+    axes[0].set_title("Object phase (projected potential)")
+    axes[1].imshow(obj_amp.T, cmap="gray")
+    axes[1].set_title("Object amplitude")
+    axes[2].imshow(probe_amp.T, cmap="viridis")
+    axes[2].set_title("Probe amplitude")
+    for ax in axes:
+        ax.axis("off")
+    plt.tight_layout()
+
+    if output_path:
+        plt.savefig(output_path, dpi=150)
+    return fig
+
+
+def plot_pypty_vs_ground_truth(reconstructed, ground_truth, pearson_r, output_path=None):
+    """
+    Side-by-side comparison of the pypty-reconstructed phase map against the
+    ground-truth projected potential from the original MD structure, plus
+    their difference map.
+    """
+    diff = reconstructed - ground_truth
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+    axes[0].imshow(reconstructed.T, cmap="gray")
+    axes[0].set_title("Reconstructed (pypty)")
+    axes[1].imshow(ground_truth.T, cmap="gray")
+    axes[1].set_title("Ground truth (avg MD structure)")
+    im = axes[2].imshow(diff.T, cmap="RdBu")
+    axes[2].set_title(f"Difference (Pearson r = {pearson_r:.3f})")
+    for ax in axes:
+        ax.axis("off")
+    plt.colorbar(im, ax=axes[2], fraction=0.046)
+    plt.tight_layout()
+
+    if output_path:
+        plt.savefig(output_path, dpi=150)
+    return fig

@@ -63,7 +63,6 @@ def build_experimental_params(scan_x, scan_y, scan_step_A):
         "fov_nm"             : None,
 
         "acc_voltage"        : BEAM_ENERGY_KV,
-
         "aberrations"        : [DEFOCUS, 0, 0],
 
         "PLRotation_deg"     : 0.0,
@@ -79,7 +78,10 @@ def build_experimental_params(scan_x, scan_y, scan_step_A):
         "chemical_formula"   : "Zr50Cu50",
         "sample_name"        : "Zr50Cu50_metallic_glass_MD_average",
 
-        "compute_batch"      : 1,
+        "compute_batch"      : 8,
+        "backend"            : "gpu",
+        # "default_dtype"      : "single",
+        "load_one_by_one"    : True,
     }
 
 
@@ -101,7 +103,31 @@ if __name__ == "__main__":
         experimental_params,
         pypty_params=None,
     )
-    pypty_params["compute_batch"] = 1  # force after joining, prevents pypty from overriding
+
+    pypty_params["compute_batch"] = 8  # matches pypty's own memory-based suggestion
+
+    # --- Resume from checkpoint, applied AFTER append_exp_params ---
+    # append_exp_params() hardcodes obj/probe/epoch_prev to fresh-start
+    # defaults regardless of what's in experimental_params, so these must
+    # be set directly on pypty_params, not passed in earlier.
+    co_path = os.path.join(OUTPUT_FOLDER, "co.npy")
+    cp_path = os.path.join(OUTPUT_FOLDER, "cp.npy")
+    cg_path = os.path.join(OUTPUT_FOLDER, "cg.npy")
+    loss_path = os.path.join(OUTPUT_FOLDER, "loss.csv")
+
+    if all(os.path.exists(p) for p in [co_path, cp_path, cg_path, loss_path]):
+        import csv
+        with open(loss_path) as f:
+            rows = list(csv.DictReader(f))
+        last_epoch = int(rows[-1]["epoch"]) if rows else 0
+
+        pypty_params["obj"] = np.load(co_path)
+        pypty_params["probe"] = np.load(cp_path)
+        pypty_params["positions"] = np.load(cg_path)
+        pypty_params["epoch_prev"] = last_epoch
+        print(f"Existing checkpoint found — resuming from epoch {last_epoch}.")
+    else:
+        print("No checkpoint found — starting fresh.")
 
     print("Starting iterative ptychography...")
     pypty.iterative.run(pypty_params)

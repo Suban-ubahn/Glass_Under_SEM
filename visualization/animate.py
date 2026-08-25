@@ -10,6 +10,8 @@
 
 
 import numpy as np
+from utils import get_output_dir
+import os
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
@@ -42,10 +44,12 @@ from config import VOXEL_EDGE, R_CUT_VOID, CUTOFF, DEFECT_THRESHOLD
 # ------------------------------------------------------------
 
 def animate_holes_KDTree(trajectory, spacing=VOXEL_EDGE, r_cut=R_CUT_VOID,
-                  save_path="holes_KDTree.mp4"):
+                  save_path=None):
     """
     Animate the 3 largest KDTree-detected holes over the trajectory.
     """
+    if save_path is None:
+        save_path = os.path.join(get_output_dir(), "holes_KDTree.mp4")
     print("Creating KDTree-hole animation")
 
     X, Y, Z = get_grid_coords(trajectory[0], spacing)
@@ -97,11 +101,13 @@ def animate_holes_KDTree(trajectory, spacing=VOXEL_EDGE, r_cut=R_CUT_VOID,
 # ------------------------------------------------------------
 
 def animate_holes_fft(trajectory, voxel_edge=VOXEL_EDGE,
-                       save_path="hole_dynamics_fft.mp4"):
+                       save_path=None):
     """
     Animate FFT-detected hole peaks over the trajectory.
     Hole colour and size reflect hole strength (Vloch value at peak).
     """
+    if save_path is None:
+        save_path = os.path.join(get_output_dir(), "hole_dynamics_fft.mp4")
     print("Creating fft-convolve hole animation")
 
     all_data = []
@@ -167,12 +173,14 @@ def animate_holes_fft(trajectory, voxel_edge=VOXEL_EDGE,
 
 def animate_defects(trajectory, cutoff=CUTOFF,
                     threshold=DEFECT_THRESHOLD,
-                    save_path="defect_clusters_dynamics.mp4"):
+                    save_path=None):
     """
     Animate connected defect clusters. Cluster colour and edge colour
     reflect cluster size — larger clusters are brighter/warmer.
     A colorbar serves as the legend for cluster size.
     """
+    if save_path is None:
+        save_path = os.path.join(get_output_dir(), "defect_clusters_dynamics.mp4")
     print("Creating graph-structure-defects animation")
 
     graphs = [atoms_to_pyg(atoms, cutoff) for atoms in trajectory]
@@ -262,7 +270,7 @@ if __name__ == "__main__":
     trajectory = load_trajectory(TRAJECTORY_FILE)
 
     # animate_holes_KDTree(trajectory, save_path="holes_3d.mp4")
-    # animate_holes_fft(trajectory, save_path="hole_dynamics_fft.mp4")
-    animate_defects(trajectory, save_path="defect_clusters_dynamics.mp4")
+    # animate_holes_fft(trajectory, save_path=None)
+    animate_defects(trajectory, save_path=None)
 
     print("Done.")

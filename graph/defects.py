@@ -22,6 +22,8 @@
 
 
 import numpy as np
+from utils import get_output_dir
+import os
 import torch
 from torch_geometric.data import Data
 
@@ -322,8 +324,10 @@ def track_defects_over_time(graphs, threshold=DEFECT_THRESHOLD,
 # ------------------------------------------------------------
 
 def plot_degree_by_element(graphs, max_frames=10,
-                            save_path="degree_distribution_by_element.png"):
+                            save_path=None):
     import matplotlib.pyplot as plt
+    if save_path is None:
+        save_path = os.path.join(get_output_dir(), "degree_distribution_by_element.png")
     deg_Zr, deg_Cu = [], []
     for g in graphs[:max_frames]:
         deg = compute_degrees(g)

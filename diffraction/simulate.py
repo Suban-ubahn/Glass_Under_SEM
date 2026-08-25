@@ -18,6 +18,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import abtem
+from utils import get_output_dir
+import os
 from ase import Atoms
 
 from config import (
@@ -183,13 +185,15 @@ def simulate_4d_stem(atoms, output_file="diffraction/4d_stem.zarr"):
 
     return diffraction_patterns
     
-def simulate_plane_wave(atoms, save_path="diffraction/plane_wave_diffraction.png"):
+def simulate_plane_wave(atoms, save_path=None):
     """
     Simulate a single diffraction pattern using a plane wave
     (equivalent to selected area electron diffraction).
     This illuminates the entire sample at once and produces
     a single 2D diffraction pattern.
     """
+    if save_path is None:
+        save_path = os.path.join(get_output_dir(), "plane_wave_diffraction.png")
     print("Building potential for plane wave simulation...")
     frozen_phonons = abtem.FrozenPhonons(
         atoms,
@@ -253,7 +257,7 @@ def resolution_test(atoms):
         plot_average_diffraction(
             measurement,
             blocked   = BLOCKED_VAL,
-            save_path = f"diffraction/resolution_test_{cfg['label']}.png",
+            save_path = os.path.join(get_output_dir(), f"resolution_test_{cfg['label']}.png"),
         )
 
 # ------------------------------------------------------------
@@ -291,7 +295,7 @@ if __name__ == "__main__":
         diffraction_patterns,
         blocked=BLOCKED_VAL,
         scan_position=SCAN_POSITION,
-        save_path="diffraction/single_position.png",
+        save_path=os.path.join(get_output_dir(), "single_position.png"),
     )
 
     bf_image, bf_mask = plot_virtual_detector_heatmap(
@@ -302,7 +306,7 @@ if __name__ == "__main__":
         log_scale=False,
         normalize=True,
         title="Virtual Bright-Field Image",
-        save_path="diffraction/virtual_bright_field.png",
+        save_path=os.path.join(get_output_dir(), "virtual_bright_field.png"),
     )
     plot_detector_mask(bf_mask)
 
@@ -314,7 +318,7 @@ if __name__ == "__main__":
         log_scale=True,
         normalize=True,
         title="Virtual Dark-Field Image",
-        save_path="diffraction/virtual_dark_field.png",
+        save_path=os.path.join(get_output_dir(), "virtual_dark_field.png"),
     )
     plot_detector_mask(df_mask)
 

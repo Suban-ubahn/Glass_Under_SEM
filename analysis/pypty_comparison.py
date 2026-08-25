@@ -26,6 +26,7 @@ from data_io.trajectory import load_trajectory
 from diffraction.simulate import compute_average_structure, correct_atom_types
 from visualization.plot import plot_pypty_reconstruction, plot_pypty_vs_ground_truth, plot_cross_correlation
 from utils import get_output_dir
+OUTPUT_DIR = get_output_dir()
 
 CHECKPOINT_DIR = "diffraction/ptycho_output"
 
@@ -105,7 +106,7 @@ if __name__ == "__main__":
     print("Plotting reconstruction...")
     plot_pypty_reconstruction(
         obj_phase, obj_amp, probe_amp,
-        output_path=os.path.join(get_output_dir(), "reconstruction_preview.png"),
+        output_path=os.path.join(OUTPUT_DIR, "reconstruction_preview.png"),
     )
 
     print("Building ground-truth projected potential from MD structure...")
@@ -120,7 +121,7 @@ if __name__ == "__main__":
 
     plot_pypty_vs_ground_truth(
         recon_norm, gt_aligned, r,
-        output_path=os.path.join(get_output_dir(), "pypty_vs_ground_truth.png"),
+        output_path=os.path.join(OUTPUT_DIR, "pypty_vs_ground_truth.png"),
     )
 
     plot_cross_correlation(xcorr)

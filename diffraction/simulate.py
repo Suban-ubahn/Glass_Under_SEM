@@ -19,6 +19,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import abtem
 from utils import get_output_dir
+OUTPUT_DIR = get_output_dir()
 import os
 from ase import Atoms
 
@@ -193,7 +194,7 @@ def simulate_plane_wave(atoms, save_path=None):
     a single 2D diffraction pattern.
     """
     if save_path is None:
-        save_path = os.path.join(get_output_dir(), "plane_wave_diffraction.png")
+        save_path = os.path.join(OUTPUT_DIR, "plane_wave_diffraction.png")
     print("Building potential for plane wave simulation...")
     frozen_phonons = abtem.FrozenPhonons(
         atoms,
@@ -257,7 +258,7 @@ def resolution_test(atoms):
         plot_average_diffraction(
             measurement,
             blocked   = BLOCKED_VAL,
-            save_path = os.path.join(get_output_dir(), f"resolution_test_{cfg['label']}.png"),
+            save_path = os.path.join(OUTPUT_DIR, f"resolution_test_{cfg['label']}.png"),
         )
 
 # ------------------------------------------------------------
@@ -295,7 +296,7 @@ if __name__ == "__main__":
         diffraction_patterns,
         blocked=BLOCKED_VAL,
         scan_position=SCAN_POSITION,
-        save_path=os.path.join(get_output_dir(), "single_position.png"),
+        save_path=os.path.join(OUTPUT_DIR, "single_position.png"),
     )
 
     bf_image, bf_mask = plot_virtual_detector_heatmap(
@@ -306,7 +307,7 @@ if __name__ == "__main__":
         log_scale=False,
         normalize=True,
         title="Virtual Bright-Field Image",
-        save_path=os.path.join(get_output_dir(), "virtual_bright_field.png"),
+        save_path=os.path.join(OUTPUT_DIR, "virtual_bright_field.png"),
     )
     plot_detector_mask(bf_mask)
 
@@ -318,7 +319,7 @@ if __name__ == "__main__":
         log_scale=True,
         normalize=True,
         title="Virtual Dark-Field Image",
-        save_path=os.path.join(get_output_dir(), "virtual_dark_field.png"),
+        save_path=os.path.join(OUTPUT_DIR, "virtual_dark_field.png"),
     )
     plot_detector_mask(df_mask)
 

@@ -15,6 +15,7 @@
 
 import numpy as np
 from utils import get_output_dir
+OUTPUT_DIR = get_output_dir()
 import os
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (registers 3d projection)
@@ -226,7 +227,7 @@ def visualize_holes_3d(atoms, void_grid, labeled, num_features,
     detected hole regions (coloured).
     """
     if save_path is None:
-        save_path = os.path.join(get_output_dir(), "largest_holes_3d.png")
+        save_path = os.path.join(OUTPUT_DIR, "largest_holes_3d.png")
     X, Y, Z = get_grid_coords(atoms, spacing)
 
     fig = plt.figure()
@@ -266,7 +267,7 @@ def plot_distribution(volumes, r_cut=R_CUT_VOID, spacing=VOXEL_EDGE,
     plt.ylabel("Count")
     plt.title("Hole Size Distribution")
     if save_path is None:
-        save_path = os.path.join(get_output_dir(), f"hole_distribution_cutoff{r_cut}Å_spacing{spacing}Å.png")
+        save_path = os.path.join(OUTPUT_DIR, f"hole_distribution_cutoff{r_cut}Å_spacing{spacing}Å.png")
     plt.savefig(save_path, dpi=300)
     plt.show()
 

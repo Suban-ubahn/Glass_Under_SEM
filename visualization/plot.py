@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import inspect
 from utils import get_output_dir
+OUTPUT_DIR = get_output_dir()
 
 
 
@@ -18,7 +19,7 @@ def plot_map(image, title, cmap="inferno", colorbar_label=""):
     plt.xlabel("X voxel")
     plt.ylabel("Y voxel")
     plt.tight_layout()
-    plt.savefig(os.path.join(get_output_dir(), f"{title.replace(' ', '_').lower()}.png"), dpi=300)
+    plt.savefig(os.path.join(OUTPUT_DIR, f"{title.replace(' ', '_').lower()}.png"), dpi=300)
     print(f"Saved: {title}")
 
 def plot_cross_correlation(xcorr):
@@ -45,7 +46,7 @@ def plot_cross_correlation(xcorr):
     plt.ylabel("Mean cross-correlation (a.u.)")
     plt.title("Radial Profile of Cross-Correlation")
     plt.tight_layout()
-    plt.savefig(os.path.join(get_output_dir(), "cross_correlation_radial.png"), dpi=300)
+    plt.savefig(os.path.join(OUTPUT_DIR, "cross_correlation_radial.png"), dpi=300)
     print("Saved: cross_correlation_radial.png")
 
 def plot_average_diffraction(diffraction_patterns, 

@@ -11,6 +11,7 @@
 
 import numpy as np
 from utils import get_output_dir
+OUTPUT_DIR = get_output_dir()
 import os
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
@@ -49,7 +50,7 @@ def animate_holes_KDTree(trajectory, spacing=VOXEL_EDGE, r_cut=R_CUT_VOID,
     Animate the 3 largest KDTree-detected holes over the trajectory.
     """
     if save_path is None:
-        save_path = os.path.join(get_output_dir(), "holes_KDTree.mp4")
+        save_path = os.path.join(OUTPUT_DIR, "holes_KDTree.mp4")
     print("Creating KDTree-hole animation")
 
     X, Y, Z = get_grid_coords(trajectory[0], spacing)
@@ -107,7 +108,7 @@ def animate_holes_fft(trajectory, voxel_edge=VOXEL_EDGE,
     Hole colour and size reflect hole strength (Vloch value at peak).
     """
     if save_path is None:
-        save_path = os.path.join(get_output_dir(), "hole_dynamics_fft.mp4")
+        save_path = os.path.join(OUTPUT_DIR, "hole_dynamics_fft.mp4")
     print("Creating fft-convolve hole animation")
 
     all_data = []
@@ -180,7 +181,7 @@ def animate_defects(trajectory, cutoff=CUTOFF,
     A colorbar serves as the legend for cluster size.
     """
     if save_path is None:
-        save_path = os.path.join(get_output_dir(), "defect_clusters_dynamics.mp4")
+        save_path = os.path.join(OUTPUT_DIR, "defect_clusters_dynamics.mp4")
     print("Creating graph-structure-defects animation")
 
     graphs = [atoms_to_pyg(atoms, cutoff) for atoms in trajectory]

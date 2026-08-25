@@ -6,6 +6,10 @@ The pipeline has three analysis branches — free-volume hole detection, graph-b
 
 ---
 
+> **Large files:** outputs or checkpoints over ~50MB should be tracked
+> with `git lfs track` before committing — GitHub rejects files over
+> 100MB outright.
+
 ## Installation
 
 Requires conda. After cloning the repository:
@@ -41,6 +45,7 @@ A full list is in `requirements.txt`.
 Glass_Under_SEM/
 │
 ├── config.py                 # All shared constants — edit this before running anything
+├── utils.py                  # Shared infrastructure (get_output_dir, etc.) — not physical constants
 │
 ├── data_io/
 │   └── trajectory.py         # Single LAMMPS dump loader used by all modules
@@ -50,21 +55,33 @@ Glass_Under_SEM/
 │   └── fft.py                # FFT-convolution hole density field
 │
 ├── graph/
-│   ├── build.py              # ASE Atoms → PyTorch Geometric graph
-│   ├── defects.py            # Coordination defect detection, clustering, tracking
-│   └── gnn.py                # GNN for atomic displacement prediction
+│   ├── build.py               # ASE Atoms → PyTorch Geometric graph
+│   ├── defects.py             # Coordination defect detection, clustering, tracking
+│   └── gnn.py                 # GNN for atomic displacement prediction
 │
 ├── diffraction/
-│   └── simulate.py           # 4D-STEM and plane wave simulations (abtem)
+│   ├── simulate.py                  # 4D-STEM and plane wave simulations (abtem)
+│   ├── reconstruct_pypty_setup.py   # Converts 4d_stem.zarr → .h5 for pypty
+│   ├── reconstruct_pypty.py         # Iterative ptychographic reconstruction (pypty)
+│   └── ptycho_output/               # pypty's own checkpoint/resume state (co.npy, cp.npy, cg.npy, loss.csv)
 │
 ├── analysis/
-│   └── projection_maps.py    # Time-integrated hole/defect heatmaps + cross-correlation
+│   ├── projection_maps.py     # Time-integrated hole/defect heatmaps + cross-correlation
+│   └── pypty_comparison.py    # Compares pypty reconstruction against ground-truth MD structure
 │
 ├── visualization/
-│   ├── animate.py            # 3D animations of holes and defect clusters
-│   └── plot.py               # All static plot functions
+│   ├── animate.py             # 3D animations of holes and defect clusters
+│   └── plot.py                # All static plot functions
 │
-└── scratch/                  # Exploratory scripts, not part of the main pipeline
+├── scripts/                   # SLURM submission scripts
+│   ├── run_simulate.sh
+│   ├── run_pypty.sh
+│   └── param_sweep.sh
+│
+├── outputs/                   # Auto-generated plots, one subfolder per producing script
+│                               #   (gitignored — see utils.get_output_dir)
+│
+└── scratch/                   # Exploratory scripts, not part of the main pipeline (gitignored)
 
 ---
 
@@ -93,6 +110,14 @@ python diffraction/simulate.py
 python analysis/projection_maps.py
 python visualization/animate.py
 ```
+
+### Output convention
+
+Any script that produces a plot, heatmap, or animation saves it under
+`outputs/<script_name>/` automatically — e.g. running
+`python analysis/pypty_comparison.py` writes into
+`outputs/pypty_comparison/`. This folder is gitignored; nothing in it
+is meant to be committed. See `utils.get_output_dir()`.
 
 ### Hole detection
 

@@ -20,3 +20,5 @@ outputs/
 *.egg-info/
 Miniconda3-latest-Linux-x86_64.sh
 .vscode/
+diffraction/ptycho_output/params.pkl
+diffraction/ptycho_output/reconstruction.nxs

@@ -103,21 +103,29 @@ All physical parameters live in `config.py`. The most important ones to check be
 
 ## Usage
 
-All scripts are run from the project root:
+**Run heavy, long-running computations via SLURM (`sbatch`); run everything else normally with `python`.**
+
+The two SLURM-based pipelines — the 4D-STEM simulation and the pypty
+reconstruction — are both multi-hour-to-multi-day jobs meant to run
+unattended on the cluster, independent of your own SSH session staying
+connected:
 
 ```bash
-python diffraction/simulate.py
-python analysis/projection_maps.py
-python visualization/animate.py
+sbatch scripts/run_simulate.sh
+sbatch scripts/run_pypty.sh
 ```
 
-### Output convention
+Everything else — hole detection, defect detection, projection maps,
+animations, plotting, and the ground-truth comparison — is fast enough
+to just run directly from the project root:
 
-Any script that produces a plot, heatmap, or animation saves it under
-`outputs/<script_name>/` automatically — e.g. running
-`python analysis/pypty_comparison.py` writes into
-`outputs/pypty_comparison/`. This folder is gitignored; nothing in it
-is meant to be committed. See `utils.get_output_dir()`.
+```bash
+python holes/core.py
+python graph/defects.py
+python analysis/projection_maps.py
+python analysis/pypty_comparison.py
+python visualization/animate.py
+```
 
 ### Hole detection
 
@@ -150,7 +158,11 @@ plot_cross_correlation(compute_cross_correlation())
 
 ### 4D-STEM diffraction simulation
 
-`diffraction/simulate.py` averages atomic positions across all MD frames and runs a full `GridScan` with a `PixelatedDetector` (abtem). Output is saved to `diffraction/4d_stem.zarr`.
+`diffraction/simulate.py` averages atomic positions across all MD frames and runs a full `GridScan` with a `PixelatedDetector` (abtem). Output is saved to `diffraction/4d_stem.zarr`. Run via SLURM, since a full simulation can run for hours:
+
+```bash
+sbatch scripts/run_simulate.sh
+```
 
 To load a previously computed dataset and plot without re-running the simulation:
 
@@ -163,11 +175,27 @@ plot_diffraction(dp, blocked=True)
 
 A `resolution_test()` function runs plane wave simulations at low/medium/high resolution to check whether simulation quality is the limiting factor before committing to a full 4D-STEM run on stronger hardware.
 
+### Ptychographic reconstruction (pypty)
+
+Two steps, run in order via SLURM — a full reconstruction can take days:
+
+```bash
+sbatch scripts/run_pypty.sh
+```
+
+This runs `diffraction/reconstruct_pypty_setup.py` (converts the 4D-STEM zarr dataset to `.h5`, in the `glass_sem_env` environment) followed by `diffraction/reconstruct_pypty.py` (the iterative reconstruction itself, in the `pypty` environment). Checkpoints (`co.npy`, `cp.npy`, `cg.npy`, `loss.csv`) are written to `diffraction/ptycho_output/` every epoch — if the job is killed or times out, resubmitting `scripts/run_pypty.sh` automatically resumes from the last saved epoch rather than starting over.
+
+To compare a completed reconstruction against the original ground-truth MD structure it was simulated from:
+
+```bash
+python analysis/pypty_comparison.py
+```
+
 ### Animations
 
 Three animations in `visualization/animate.py`:
 
-- `animate_holes()` — KDTree-detected hole dynamics
+- `animate_holes_KDTree()` — KDTree-detected hole dynamics
 - `animate_holes_fft()` — FFT hole peaks, coloured by strength
 - `animate_defects()` — defect cluster dynamics, coloured by cluster size
 
@@ -178,6 +206,12 @@ All plot functions are in `visualization/plot.py`:
 - `plot_map(image, title, cmap, colorbar_label)` — 2D heatmap
 - `plot_diffraction(diffraction_patterns, blocked, save_path)` — diffraction pattern; `blocked=True` masks the direct beam
 - `plot_cross_correlation(xcorr)` — 2D map + radial profile
+- `plot_pypty_reconstruction(obj_phase, obj_amp, probe_amp, output_path)` — reconstructed object phase/amplitude and probe amplitude
+- `plot_pypty_vs_ground_truth(reconstructed, ground_truth, pearson_r, output_path)` — side-by-side comparison against the MD ground truth, with difference map
+
+### Output convention
+
+Any script that produces a plot, heatmap, or animation saves it automatically to `outputs/<script_name>/` — e.g. running `python analysis/pypty_comparison.py` writes into `outputs/pypty_comparison/`. This folder is gitignored; nothing in it is meant to be committed. See `utils.get_output_dir()`.
 
 ---
 

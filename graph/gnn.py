@@ -1,4 +1,3 @@
-
 # =============================================================
 # graph/gnn.py — GNN for atomic displacement prediction
 #
@@ -11,7 +10,7 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.nn import MessagePassing
 
 from graph.build import atoms_to_pyg
-from config import GNN_HIDDEN_DIM, GNN_EPOCHS, GNN_LR, GNN_BATCH_SIZE, CUTOFF
+from config import GNN_HIDDEN_DIM, GNN_EPOCHS, GNN_LR, GNN_BATCH_SIZE, GRAPH_CUTOFF_DICT
 
 
 # ------------------------------------------------------------
@@ -50,7 +49,7 @@ def compute_displacement(atoms_t, atoms_tp1):
 # Dataset
 # ------------------------------------------------------------
 
-def build_dataset(trajectory, cutoff=CUTOFF):
+def build_dataset(trajectory, cutoff=GRAPH_CUTOFF_DICT):
     """
     Build a list of PyG Data objects where each graph represents
     the atomic structure at frame t and the displacement to frame

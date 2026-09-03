@@ -142,18 +142,7 @@ Two approaches in `holes/`:
 
 In `graph/defects.py`. Atoms form a graph with edges between neighbours within `CUTOFF` Å. Defects are atoms whose coordination number falls more than `DEFECT_THRESHOLD` bonds below the element mean. Connected defect atoms are grouped into clusters.
 
-Two classifiers are available:
-- `classify_defects_from_deficit()` — primary, absolute threshold
-- `classify_defects_statistical()` — alternative, mean − k·std threshold
 
-### Projection maps & cross-correlation
-
-`analysis/projection_maps.py` loops over the full trajectory, projects both hole density and defect cluster maps onto XY, and accumulates them into time-integrated heatmaps saved as:
-
-analysis/cumulative_hole_map.npy
-analysis/cumulative_cluster_map.npy
-
-To re-run only the cross-correlation without recomputing the maps:
 
 ```python
 from analysis.projection_maps import compute_cross_correlation, plot_cross_correlation

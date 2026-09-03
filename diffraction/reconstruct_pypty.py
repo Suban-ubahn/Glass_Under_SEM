@@ -104,7 +104,7 @@ if __name__ == "__main__":
         pypty_params=None,
     )
 
-    pypty_params["compute_batch"] = 8  # matches pypty's own memory-based suggestion
+    pypty_params["compute_batch"] = 8
 
     # --- Resume from checkpoint, applied AFTER append_exp_params ---
     # append_exp_params() hardcodes obj/probe/epoch_prev to fresh-start

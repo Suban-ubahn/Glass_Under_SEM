@@ -7,7 +7,7 @@ name = "glass_under_sem"
 version = "0.1.0"
 
 [tool.setuptools]
-py-modules = ["config"]
+py-modules = ["config", "utils"]
 
 [tool.setuptools.packages.find]
 where = ["."]

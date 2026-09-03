@@ -24,7 +24,6 @@ import os
 from ase import Atoms
 
 from config import (
-    TYPE_TO_Z,
     TYPE_TO_RADIUS,
     BEAM_ENERGY_KV,
     MAX_ANGLE_MRAD,
@@ -78,16 +77,6 @@ def compute_average_structure(trajectory):
         pbc       = ref.pbc,
     )
     return avg_atoms
-
-# ------------------------------------------------------------
-# Atom type correction  (LAMMPS int → atomic number)
-# ------------------------------------------------------------
-
-def correct_atom_types(atoms):
-    """Replace LAMMPS type integers with proper atomic numbers."""
-    for atom in atoms:
-        atom.number = TYPE_TO_Z[atom.number]
-    return atoms
 
 
 # ------------------------------------------------------------
@@ -280,7 +269,11 @@ if __name__ == "__main__":
     print(f"Loaded {len(trajectory)} frames")
 
     avg_atoms = compute_average_structure(trajectory)
-    avg_atoms = correct_atom_types(avg_atoms)
+    # correct_atom_types() removed — data_io.trajectory.load_trajectory()
+    # now sets real atomic numbers on every loaded frame directly, so
+    # trajectory[0].numbers (used above via `ref.numbers`) is already
+    # correct. Calling the old correction again here would now raise
+    # a KeyError (TYPE_TO_Z has no entry for 40 or 29, only 1 and 2).
 
     # resolution_test(avg_atoms)
     diffraction_patterns = simulate_4d_stem(avg_atoms, output_file="diffraction/4d_stem.zarr")

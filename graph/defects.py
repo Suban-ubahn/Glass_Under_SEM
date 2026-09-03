@@ -28,7 +28,7 @@ import os
 import torch
 from torch_geometric.data import Data
 
-from config import CUTOFF, DEFECT_THRESHOLD
+from config import GRAPH_CUTOFF_DICT, DEFECT_THRESHOLD
 
 
 # ------------------------------------------------------------
@@ -192,10 +192,16 @@ def get_connected_components(edge_index, num_nodes):
 # Defect subgraph
 # ------------------------------------------------------------
 
-def build_defect_subgraph(graph, defects, cutoff=CUTOFF):
+def build_defect_subgraph(graph, defects, cutoff=GRAPH_CUTOFF_DICT):
     """
     Build a new PyG graph containing only defect atoms, with
     edges between defects that are within `cutoff` Å of each other.
+
+    `cutoff` may be a single float (same threshold for every pair,
+    old behavior) or a dict keyed by (Z_i, Z_j) real-atomic-number
+    pairs — see config.GRAPH_CUTOFF_DICT / config.CUTOFF_DICT —
+    in which case the threshold used for each defect pair depends
+    on which two species that specific pair is.
 
     Returns
     -------
@@ -209,11 +215,23 @@ def build_defect_subgraph(graph, defects, cutoff=CUTOFF):
         return None, None
 
     defect_pos = pos[defect_idx]
+    defect_Z   = graph.x[defect_idx].view(-1)
 
     diff = defect_pos.unsqueeze(1) - defect_pos.unsqueeze(0)
     dist = torch.norm(diff, dim=-1)
 
-    mask       = (dist < cutoff) & (dist > 0)
+    if isinstance(cutoff, dict):
+        Z_np = defect_Z.cpu().numpy().astype(int)
+        M = len(Z_np)
+        cutoff_matrix = np.zeros((M, M), dtype=np.float32)
+        for a in range(M):
+            for b in range(M):
+                cutoff_matrix[a, b] = cutoff[(Z_np[a], Z_np[b])]
+        cutoff_use = torch.tensor(cutoff_matrix, dtype=dist.dtype, device=dist.device)
+    else:
+        cutoff_use = cutoff  # plain scalar — broadcasts as before
+
+    mask       = (dist < cutoff_use) & (dist > 0)
     edge_index = mask.nonzero(as_tuple=False).t()
 
     subgraph = Data(

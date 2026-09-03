@@ -428,7 +428,6 @@ def plot_pypty_reconstruction(obj_phase, obj_amp, probe_amp, output_path=None):
         plt.savefig(output_path, dpi=150)
     return fig
 
-
 def plot_pypty_vs_ground_truth(reconstructed, ground_truth, pearson_r, output_path=None):
     """
     Side-by-side comparison of the pypty-reconstructed phase map against the
@@ -452,3 +451,71 @@ def plot_pypty_vs_ground_truth(reconstructed, ground_truth, pearson_r, output_pa
     if output_path:
         plt.savefig(output_path, dpi=150)
     return fig
+
+def plot_pair_correlation(r, g_r, cutoff_r=None, peak_r=None,
+                           save_path="dynamics/pair_correlation.png"):
+    """
+    Plot g(r) with the detected first peak and neighbor cutoff marked.
+    """
+    plt.figure(figsize=(7, 4))
+    plt.plot(r, g_r, color="black", linewidth=1.2)
+    if peak_r is not None:
+        plt.axvline(peak_r, color="tab:blue", linestyle="--",
+                     label=f"1st peak: {peak_r:.2f} A")
+    if cutoff_r is not None:
+        plt.axvline(cutoff_r, color="tab:red", linestyle="--",
+                     label=f"cutoff (1st minimum): {cutoff_r:.2f} A")
+    plt.xlabel("r (A)")
+    plt.ylabel("g(r)")
+    plt.title("Radial Pair Correlation Function")
+    plt.legend()
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+
+def plot_d2min_histogram(d2min, save_path="dynamics/d2min_histogram.png"):
+    """
+    Histogram of D^2_min values across all atoms (log-y, since the
+    distribution is typically heavy-tailed: most atoms sit near the
+    bulk value, with a minority showing much larger non-affine motion).
+    """
+    valid = d2min[~np.isnan(d2min)]
+    plt.figure(figsize=(7, 4))
+    plt.hist(valid, bins=80, color="steelblue", edgecolor="none")
+    plt.yscale("log")
+    plt.axvline(np.median(valid), color="black", linestyle="--",
+                 label=f"median = {np.median(valid):.2f} A^2")
+    plt.xlabel("D^2_min (A^2)")
+    plt.ylabel("Atom count (log scale)")
+    plt.title("Distribution of Non-Affine Squared Displacement")
+    plt.legend()
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+
+def plot_d2min_map(atoms_ref, d2min, save_path="dynamics/d2min_map.png"):
+    """
+    2D (x-y) scatter of atoms, colored by D^2_min — a real-space map
+    of where non-affine (flow-unit-like) activity is concentrated,
+    integrated over the whole z-thickness of the cell.
+    """
+    pos = atoms_ref.positions
+    plt.figure(figsize=(7, 6))
+    sc = plt.scatter(pos[:, 0], pos[:, 1], c=d2min, cmap="inferno",
+                      s=14, vmax=np.nanpercentile(d2min, 99))
+    plt.colorbar(sc).set_label("D^2_min (A^2)", fontsize=9)
+    plt.xlabel("x (A)")
+    plt.ylabel("y (A)")
+    plt.title("Non-Affine Displacement Map (D^2_min)")
+    plt.gca().set_aspect("equal")
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")

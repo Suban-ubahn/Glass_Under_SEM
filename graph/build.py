@@ -10,7 +10,7 @@ import torch
 from torch_geometric.data import Data
 from ase.neighborlist import neighbor_list
 
-from config import TYPE_TO_Z, CUTOFF
+from config import TYPE_TO_Z, GRAPH_CUTOFF_DICT
 
 
 # ------------------------------------------------------------
@@ -42,7 +42,7 @@ def rbf(dist, D_min=0.0, D_max=5.0, num_kernels=32):
 # Main conversion
 # ------------------------------------------------------------
 
-def atoms_to_pyg(atoms, cutoff=CUTOFF):
+def atoms_to_pyg(atoms, cutoff=GRAPH_CUTOFF_DICT):
     """
     Convert an ASE Atoms object to a PyTorch Geometric Data graph.
 
@@ -93,7 +93,7 @@ def atoms_to_pyg(atoms, cutoff=CUTOFF):
     )
 
 
-def trajectory_to_graphs(trajectory, cutoff=CUTOFF):
+def trajectory_to_graphs(trajectory, cutoff=GRAPH_CUTOFF_DICT):
     """Convert a full trajectory (list of Atoms) to a list of PyG Data objects."""
     return [atoms_to_pyg(atoms, cutoff) for atoms in trajectory]
 

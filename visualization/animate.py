@@ -37,7 +37,7 @@ from graph.defects import (
     build_defect_subgraph,
     get_connected_components,
 )
-from config import VOXEL_EDGE, R_CUT_VOID, CUTOFF, DEFECT_THRESHOLD
+from config import VOXEL_EDGE, R_CUT_VOID, GRAPH_CUTOFF_DICT, DEFECT_THRESHOLD
 
 
 # ------------------------------------------------------------
@@ -172,7 +172,7 @@ def animate_holes_fft(trajectory, voxel_edge=VOXEL_EDGE,
 # 3. Defect cluster animation  (was visualize_defects_animation.py)
 # ------------------------------------------------------------
 
-def animate_defects(trajectory, cutoff=CUTOFF,
+def animate_defects(trajectory, cutoff=GRAPH_CUTOFF_DICT,
                     threshold=DEFECT_THRESHOLD,
                     save_path=None):
     """

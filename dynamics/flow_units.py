@@ -16,10 +16,10 @@
 import numpy as np
 from ase.neighborlist import neighbor_list
 
-from config import CUTOFF
+from config import CUTOFF_DICT
 
 
-def compute_d2min(atoms_ref, atoms_cur, cutoff=CUTOFF, min_neighbors=4):
+def compute_d2min(atoms_ref, atoms_cur, cutoff=CUTOFF_DICT, min_neighbors=4):
     """
     Compute the non-affine squared displacement D^2_min for every
     atom, between a reference configuration (t0) and a comparison
@@ -31,9 +31,17 @@ def compute_d2min(atoms_ref, atoms_cur, cutoff=CUTOFF, min_neighbors=4):
         Reference configuration (t0).
     atoms_cur : ase.Atoms
         Comparison configuration (t).
-    cutoff : float
+    cutoff : float or dict
         Neighbor cutoff radius (Å) defining each atom's local
         neighborhood, evaluated in the REFERENCE configuration.
+        Defaults to config.CUTOFF_DICT — a dict keyed by
+        (Z_i, Z_j) real-atomic-number pairs, giving each of
+        Zr-Zr/Zr-Cu/Cu-Cu its own g(r)-derived cutoff (the first
+        MINIMUM after the first peak — the full coordination shell,
+        not just the literal bond distance; see config.py's
+        comment on CUTOFF_* vs PEAK_* for why D^2_min specifically
+        wants the minimum-based one). A plain float also still
+        works, for a single global cutoff.
     min_neighbors : int
         Atoms with fewer neighbors than this are skipped (too few
         vectors for a stable 3x3 fit) and assigned NaN.
@@ -120,7 +128,7 @@ def compute_d2min(atoms_ref, atoms_cur, cutoff=CUTOFF, min_neighbors=4):
     return d2min, F_all
 
 
-def d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF):
+def d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF_DICT):
     """
     Compute D^2_min at every frame relative to a fixed reference
     frame t0, across a full loaded trajectory.
@@ -132,7 +140,7 @@ def d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF):
         Index of the reference frame.
     frame_step : int
         Stride between compared frames (1 = every frame).
-    cutoff : float
+    cutoff : float or dict — see compute_d2min's docstring.
 
     Returns
     -------
@@ -150,26 +158,20 @@ def d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF):
 
 if __name__ == "__main__":
     from data_io.trajectory import load_trajectory
-    from utils import average_pair_correlation, find_cutoff_from_gr
-    from visualization.plot import (
-        plot_pair_correlation,
-        plot_d2min_histogram,
-        plot_d2min_map,
-    )
+    from config import CUTOFF_ZRZR, CUTOFF_ZRCU, CUTOFF_CUCU
+    from visualization.plot import plot_d2min_histogram, plot_d2min_map
 
     trajectory = load_trajectory()
-    print(f"Loaded {len(trajectory)} frames, {len(trajectory)} atoms each.")
+    print(f"Loaded {len(trajectory)} frames, {len(trajectory[0])} atoms each.")
 
-    # --- cutoff from g(r), compared against the current graph CUTOFF ---
-    r, g_r = average_pair_correlation(trajectory)
-    cutoff_gr, peak_r = find_cutoff_from_gr(r, g_r)
-    print(f"g(r) first peak (nearest-neighbor distance): {peak_r:.3f} A")
-    print(f"g(r)-derived cutoff (first minimum):          {cutoff_gr:.3f} A")
-    print(f"Currently used graph CUTOFF in config.py:      {CUTOFF} A")
-    plot_pair_correlation(r, g_r, cutoff_gr, peak_r)
+    print(f"CUTOFF_ZRZR (config.py, g(r)-derived): {CUTOFF_ZRZR:.3f} A")
+    print(f"CUTOFF_ZRCU (config.py, g(r)-derived): {CUTOFF_ZRCU:.3f} A")
+    print(f"CUTOFF_CUCU (config.py, g(r)-derived): {CUTOFF_CUCU:.3f} A")
 
     # --- D^2_min between first and last frame ---
-    d2min, F_all = compute_d2min(trajectory[0], trajectory[-1], cutoff=cutoff_gr)
+    # cutoff defaults to CUTOFF_DICT (species-resolved, minimum-based —
+    # see compute_d2min's docstring), so no need to pass it explicitly.
+    d2min, F_all = compute_d2min(trajectory[0], trajectory[-1])
     valid = ~np.isnan(d2min)
     print(f"\nD^2_min computed for {valid.sum()}/{len(d2min)} atoms "
           f"({(~valid).sum()} skipped, insufficient neighbors).")

@@ -25,7 +25,7 @@ from graph.defects import (
     get_connected_components,   
 )
 from visualization.plot import plot_map, plot_cross_correlation
-from config import VOXEL_EDGE, CUTOFF, DEFECT_THRESHOLD
+from config import VOXEL_EDGE, GRAPH_CUTOFF_DICT, DEFECT_THRESHOLD
 
 
 # ------------------------------------------------------------
@@ -46,7 +46,7 @@ def project_holes(Vloch):
 def project_defect_clusters(graph, defects,
                               voxel_edge_xy=VOXEL_EDGE,
                               shape_xy=None,
-                              cutoff=CUTOFF):
+                              cutoff=GRAPH_CUTOFF_DICT):
     """
     Build the defect subgraph, find connected components, and
     paint each component onto a 2-D grid weighted by cluster size.
@@ -86,7 +86,7 @@ def project_defect_clusters(graph, defects,
 
 def build_cumulative_maps(trajectory,
                            voxel_edge=VOXEL_EDGE,
-                           cutoff=CUTOFF,
+                           cutoff=GRAPH_CUTOFF_DICT,
                            threshold=DEFECT_THRESHOLD):
     """
     Loop over every frame, compute hole and defect-cluster

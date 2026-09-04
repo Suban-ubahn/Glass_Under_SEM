@@ -112,6 +112,7 @@ GRAPH_CUTOFF_DICT = {
 }
 
 DEFECT_THRESHOLD = 1.0   # missing bonds below element mean → defect
+DEFECT_K = 1.0   # defects are >1 standard deviation below element mean
 
 # ------------------------------------------------------------
 # GNN training  (graph/gnn.py)

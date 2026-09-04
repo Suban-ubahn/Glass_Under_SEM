@@ -34,10 +34,12 @@ from graph.defects import (
     compute_degrees,
     compute_degree_deficit,
     classify_defects_from_deficit,
+    classify_defects_statistical,
     build_defect_subgraph,
     get_connected_components,
 )
-from config import VOXEL_EDGE, R_CUT_VOID, GRAPH_CUTOFF_DICT, CUTOFF_DICT, DEFECT_THRESHOLD
+
+from config import VOXEL_EDGE, R_CUT_VOID, GRAPH_CUTOFF_DICT, CUTOFF_DICT, DEFECT_THRESHOLD, DEFECT_K
 from dynamics.flow_units import d2min_consecutive_trajectory
 
 # ------------------------------------------------------------
@@ -193,10 +195,7 @@ def animate_defects(trajectory, cutoff=GRAPH_CUTOFF_DICT,
     for g in graphs:
         degrees = compute_degrees(g)
         Z       = g.x.view(-1)
-        deficit = compute_degree_deficit(degrees, Z)
-        defects = classify_defects_from_deficit(
-            deficit, degrees, Z, threshold=threshold, print_stats=False
-        )
+        defects = classify_defects_statistical(degrees, Z, k=DEFECT_K)
         subgraph, _ = build_defect_subgraph(g, defects, cutoff=cutoff)
 
         if subgraph is None:

@@ -28,7 +28,7 @@ import os
 import torch
 from torch_geometric.data import Data
 
-from config import GRAPH_CUTOFF_DICT, DEFECT_THRESHOLD
+from config import CUTOFF_DICT, DEFECT_THRESHOLD, DEFECT_K
 
 
 # ------------------------------------------------------------
@@ -192,14 +192,14 @@ def get_connected_components(edge_index, num_nodes):
 # Defect subgraph
 # ------------------------------------------------------------
 
-def build_defect_subgraph(graph, defects, cutoff=GRAPH_CUTOFF_DICT):
+def build_defect_subgraph(graph, defects, cutoff=CUTOFF_DICT):
     """
     Build a new PyG graph containing only defect atoms, with
     edges between defects that are within `cutoff` Å of each other.
 
     `cutoff` may be a single float (same threshold for every pair,
     old behavior) or a dict keyed by (Z_i, Z_j) real-atomic-number
-    pairs — see config.GRAPH_CUTOFF_DICT / config.CUTOFF_DICT —
+    pairs — see config.CUTOFF_DICT / config.CUTOFF_DICT —
     in which case the threshold used for each defect pair depends
     on which two species that specific pair is.
 
@@ -282,8 +282,7 @@ def extract_defect_neighbor_subgraphs(graph, defects):
 # Defect tracking over time
 # ------------------------------------------------------------
 
-def track_defects_over_time(graphs, threshold=DEFECT_THRESHOLD,
-                             max_match_dist=1.5):
+def track_defects_over_time(graphs, k=DEFECT_K, max_match_dist=1.5):
     """
     Greedily match defect atoms across consecutive frames by
     nearest-neighbour position matching (within max_match_dist Å).
@@ -300,11 +299,7 @@ def track_defects_over_time(graphs, threshold=DEFECT_THRESHOLD,
     for t, g in enumerate(graphs):
         degrees = compute_degrees(g)
         Z       = g.x.view(-1)
-        deficit = compute_degree_deficit(degrees, Z)
-        defects = classify_defects_from_deficit(
-            deficit, degrees, Z,
-            threshold=threshold, print_stats=False
-        )
+        defects = classify_defects_statistical(degrees, Z, k=k)
 
         defect_idx = torch.where(defects)[0]
         positions  = g.pos[defect_idx]
@@ -386,7 +381,7 @@ if __name__ == "__main__":
     degrees = compute_degrees(g)
     Z       = g.x.view(-1)
     deficit = compute_degree_deficit(degrees, Z)
-    defects = classify_defects_from_deficit(deficit, degrees, Z, print_stats=True)
+    defects = classify_defects_statistical(degrees, Z, k=DEFECT_K)
 
     print(f"Defects in first frame: {defects.sum().item()}")
 

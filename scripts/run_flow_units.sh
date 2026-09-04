@@ -32,4 +32,8 @@ echo "=== Dynamics: pair correlation + D^2_min ==="
 python dynamics/flow_units.py
 
 echo ""
+echo "=== Flow-unit / D2min animations ==="
+python scripts/build_d2min_animations.py
+
+echo ""
 echo "=== Done ==="

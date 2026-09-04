@@ -155,6 +155,51 @@ def d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF_DICT):
     ]
     return d2min_series, frame_indices
 
+def d2min_consecutive_trajectory(trajectory, cutoff=CUTOFF_DICT):
+    """
+    Compute D^2_min between every pair of CONSECUTIVE frames
+    (frame 0→1, 1→2, ..., N-2→N-1) — distinct from d2min_trajectory
+    above, which compares every frame against one FIXED reference
+    frame. This is the "how much did each atom rearrange during
+    this specific step" view, rather than "how far has each atom
+    drifted from where it started".
+
+    Also returns the CUMULATIVE sum of D^2_min per atom over the
+    trajectory — i.e. cumulative[k] is the running total of
+    non-affine squared displacement each atom has accumulated by
+    frame k. Since D^2_min >= 0 always, this is monotonically
+    non-decreasing per atom — it only ever grows — which is the
+    quantity the animations below color atoms by.
+
+    Parameters
+    ----------
+    trajectory : list of ase.Atoms
+    cutoff : float or dict — see compute_d2min's docstring.
+
+    Returns
+    -------
+    d2min_series : list of (N,) np.ndarray, length n_frames-1 —
+        D^2_min for step k -> k+1, at index k.
+    cumulative : (n_frames, N) np.ndarray —
+        cumulative[0] is all zeros (no motion yet); cumulative[k]
+        for k>0 is the running sum of d2min_series[0..k-1].
+    """
+    n_frames = len(trajectory)
+    n_atoms = len(trajectory[0])
+
+    d2min_series = []
+    for k in range(n_frames - 1):
+        d2min, _ = compute_d2min(trajectory[k], trajectory[k + 1], cutoff=cutoff)
+        # NaN atoms (too few neighbors that step) contribute 0 to the
+        # running total rather than poisoning every subsequent frame.
+        d2min_series.append(np.nan_to_num(d2min, nan=0.0))
+
+    cumulative = np.zeros((n_frames, n_atoms))
+    for k in range(1, n_frames):
+        cumulative[k] = cumulative[k - 1] + d2min_series[k - 1]
+
+    return d2min_series, cumulative
+
 
 if __name__ == "__main__":
     from data_io.trajectory import load_trajectory

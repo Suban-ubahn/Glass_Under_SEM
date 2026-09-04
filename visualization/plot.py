@@ -475,7 +475,6 @@ def plot_pair_correlation(r, g_r, cutoff_r=None, peak_r=None,
     plt.close()
     print(f"Saved: {save_path}")
 
-
 def plot_d2min_histogram(d2min, save_path="dynamics/d2min_histogram.png"):
     """
     Histogram of D^2_min values across all atoms (log-y, since the
@@ -498,7 +497,6 @@ def plot_d2min_histogram(d2min, save_path="dynamics/d2min_histogram.png"):
     plt.close()
     print(f"Saved: {save_path}")
 
-
 def plot_d2min_map(atoms_ref, d2min, save_path="dynamics/d2min_map.png"):
     """
     2D (x-y) scatter of atoms, colored by D^2_min — a real-space map
@@ -514,6 +512,33 @@ def plot_d2min_map(atoms_ref, d2min, save_path="dynamics/d2min_map.png"):
     plt.ylabel("y (A)")
     plt.title("Non-Affine Displacement Map (D^2_min)")
     plt.gca().set_aspect("equal")
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+def plot_d2min_map_3d(atoms_ref, d2min, save_path="dynamics/d2min_map_3d.png",
+                       elev=20, azim=45):
+    """
+    3D (x-y-z) scatter of atoms, colored by D^2_min. Unlike
+    plot_d2min_map (which integrates over the full z-thickness and
+    can hide real 3D clustering behind overlapping points), this
+    shows each atom at its actual depth — rotate/re-render with
+    different elev/azim to check for localization the 2D projection
+    might be washing out.
+    """
+    pos = atoms_ref.positions
+    fig = plt.figure(figsize=(8, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    sc = ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2], c=d2min, cmap="inferno",
+                     s=10, vmax=np.nanpercentile(d2min, 99), alpha=0.8)
+    fig.colorbar(sc, ax=ax, shrink=0.7, pad=0.1).set_label("D^2_min (A^2)", fontsize=9)
+    ax.set_xlabel("x (A)")
+    ax.set_ylabel("y (A)")
+    ax.set_zlabel("z (A)")
+    ax.set_title("Non-Affine Displacement Map (D^2_min) — 3D")
+    ax.view_init(elev=elev, azim=azim)
     plt.tight_layout()
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=300)

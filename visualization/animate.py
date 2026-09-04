@@ -37,8 +37,8 @@ from graph.defects import (
     build_defect_subgraph,
     get_connected_components,
 )
-from config import VOXEL_EDGE, R_CUT_VOID, GRAPH_CUTOFF_DICT, DEFECT_THRESHOLD
-
+from config import VOXEL_EDGE, R_CUT_VOID, GRAPH_CUTOFF_DICT, CUTOFF_DICT, DEFECT_THRESHOLD
+from dynamics.flow_units import d2min_consecutive_trajectory
 
 # ------------------------------------------------------------
 # 1. KDTree hole animation  (was find_holes_animation.py)
@@ -259,6 +259,96 @@ def animate_defects(trajectory, cutoff=GRAPH_CUTOFF_DICT,
     ani.save(save_path, fps=12, dpi=200)
     print(f"Saved: {save_path}")
 
+def animate_d2min_2d(trajectory, cutoff=CUTOFF_DICT, save_path=None):
+    """
+    Animate atoms at their actual (x, y) positions each frame,
+    colored by the CUMULATIVE D^2_min each atom has accumulated up
+    to that frame. Since D^2_min >= 0 always, this cumulative value
+    only ever grows — atoms brighten over the animation as they
+    accumulate non-affine (flow-unit-like) rearrangement, rather
+    than flickering between D^2_min's step-to-step value.
+
+    The color scale (0 to the 99th percentile of the FINAL frame's
+    cumulative value) is fixed for the whole animation, so growth
+    is directly visible as atoms brightening — not an artifact of
+    the colorbar rescaling itself frame to frame.
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "d2min_dynamics_2d.mp4")
+    print("Creating D^2_min 2D animation")
+
+    d2min_series, cumulative = d2min_consecutive_trajectory(trajectory, cutoff)
+
+    vmax = np.nanpercentile(cumulative[-1], 99)
+    cmap = cm.inferno
+    norm = mcolors.Normalize(vmin=0, vmax=vmax)
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax)
+    cbar.set_label("Cumulative D^2_min (A^2)", fontsize=9)
+
+    cell = trajectory[0].cell.lengths()
+
+    def update(frame):
+        print(f"Updating animation frame {frame}")
+        ax.clear()
+        pos = trajectory[frame].positions
+        ax.scatter(pos[:, 0], pos[:, 1], c=cumulative[frame],
+                   cmap=cmap, norm=norm, s=14)
+        ax.set_xlim(0, cell[0]); ax.set_ylim(0, cell[1])
+        ax.set_xlabel("x (A)"); ax.set_ylabel("y (A)")
+        ax.set_title(f"Cumulative D^2_min (Frame {frame})")
+        ax.set_aspect("equal")
+
+    ani = FuncAnimation(fig, update, frames=len(trajectory), interval=100)
+    ani.save(save_path, fps=12, dpi=150)
+    print(f"Saved: {save_path}")
+
+
+def animate_d2min_3d(trajectory, cutoff=CUTOFF_DICT, save_path=None,
+                      elev=20, azim=45):
+    """
+    Same idea as animate_d2min_2d, but atoms are shown at their real
+    (x, y, z) positions each frame instead of a z-integrated 2D
+    projection — see plot_d2min_map_3d's docstring for why that
+    matters (the 2D version can hide real 3D localization behind
+    overlapping points along the viewing axis).
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "d2min_dynamics_3d.mp4")
+    print("Creating D^2_min 3D animation")
+
+    d2min_series, cumulative = d2min_consecutive_trajectory(trajectory, cutoff)
+
+    vmax = np.nanpercentile(cumulative[-1], 99)
+    cmap = cm.inferno
+    norm = mcolors.Normalize(vmin=0, vmax=vmax)
+
+    fig = plt.figure(figsize=(8, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, shrink=0.7, pad=0.1)
+    cbar.set_label("Cumulative D^2_min (A^2)", fontsize=9)
+
+    cell = trajectory[0].cell.lengths()
+
+    def update(frame):
+        print(f"Updating animation frame {frame}")
+        ax.clear()
+        pos = trajectory[frame].positions
+        ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2], c=cumulative[frame],
+                   cmap=cmap, norm=norm, s=10, alpha=0.8)
+        ax.set_xlim(0, cell[0]); ax.set_ylim(0, cell[1]); ax.set_zlim(0, cell[2])
+        ax.set_xlabel("x (A)"); ax.set_ylabel("y (A)"); ax.set_zlabel("z (A)")
+        ax.set_title(f"Cumulative D^2_min (Frame {frame})")
+        ax.view_init(elev=elev, azim=azim)
+
+    ani = FuncAnimation(fig, update, frames=len(trajectory), interval=100)
+    ani.save(save_path, fps=12, dpi=150)
+    print(f"Saved: {save_path}")
 
 # ------------------------------------------------------------
 # Main — run all three animations
@@ -272,6 +362,6 @@ if __name__ == "__main__":
 
     # animate_holes_KDTree(trajectory, save_path="holes_3d.mp4")
     # animate_holes_fft(trajectory, save_path=None)
-    animate_defects(trajectory, save_path=None)
+    # animate_defects(trajectory, save_path=None)
 
     print("Done.")

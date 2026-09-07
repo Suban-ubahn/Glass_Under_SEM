@@ -545,6 +545,31 @@ def plot_d2min_map_3d(atoms_ref, d2min, save_path="dynamics/d2min_map_3d.png",
     plt.close()
     print(f"Saved: {save_path}")
 
+def plot_d2min_defect_comparison(stats, save_path=None):
+    """
+    Mean D^2_min for defect vs non-defect atoms over the trajectory
+    (relative to frame 0). If the defect line consistently sits above
+    the non-defect line, defects are tracking — and plausibly driving —
+    the non-affine dynamics; if the two lines stay close, d2min is
+    more diffuse and not concentrated at defect sites.
+    """
+    fig, ax = plt.subplots(figsize=(7, 5))
+
+    frames = stats["frame_indices"]
+    ax.plot(frames, stats["mean_defect"], label="Defect atoms", color="crimson")
+    ax.plot(frames, stats["mean_nondefect"], label="Non-defect atoms", color="steelblue")
+
+    ax.set_xlabel("Frame")
+    ax.set_ylabel("Mean D²_min (Å²)")
+    ax.set_title("D²_min by defect membership, relative to frame 0")
+    ax.legend()
+
+    if save_path:
+        fig.savefig(save_path, dpi=200)
+        print(f"Saved: {save_path}")
+
+    return fig, ax
+
 def plot_d2min_hole_distance(stats, save_path=None):
     """
     Mean D^2_min per distance-to-nearest-hole group (near/mid/far,
@@ -572,5 +597,4 @@ def plot_d2min_hole_distance(stats, save_path=None):
         fig.savefig(save_path, dpi=200)
         print(f"Saved: {save_path}")
 
-    plt.show()
     return fig, ax

@@ -71,7 +71,7 @@ def animate_holes_KDTree(trajectory, spacing=VOXEL_EDGE, r_cut=R_CUT_VOID,
     ]
 
     def update(frame):
-        print(f"Updating animation frame {frame}")
+        # print(f"Updating animation frame {frame}")
         ax.clear()
         atoms = trajectory[frame]
 
@@ -116,7 +116,7 @@ def animate_holes_fft(trajectory, voxel_edge=VOXEL_EDGE,
     all_data = []
     all_strengths = []
     for t, atoms in enumerate(trajectory):
-        print(f"Processing frame {t}")
+        # print(f"Processing frame {t}")
         Vcell            = compute_Vcell(atoms, voxel_edge)
         Vloch            = compute_Vloch(Vcell, voxel_edge)
         peak_idx, peak_v = find_hole_peaks(Vloch)
@@ -147,7 +147,7 @@ def animate_holes_fft(trajectory, voxel_edge=VOXEL_EDGE,
     cell = trajectory[0].cell.lengths()
 
     def update(frame):
-        print(f"Updating animation frame {frame}")
+        # print(f"Updating animation frame {frame}")
         ax.clear()
         atom_pos, hole_pos, hole_strength = all_data[frame]
 
@@ -235,7 +235,7 @@ def animate_defects(trajectory, cutoff=GRAPH_CUTOFF_DICT,
     pos_all = graphs[0].pos
 
     def update(frame):
-        print(f"Updating animation frame {frame}")
+        # print(f"Updating animation frame {frame}")
         ax.clear()
 
         for cluster_pos, edges, comp, size in all_cluster_data[frame]:
@@ -313,11 +313,9 @@ def animate_d2min_2d(trajectory, cutoff=CUTOFF_DICT, save_path=None):
 
     def update(i):
         frame = frame_indices[i]
-
-        print(f"Updating animation frame {frame}")
-
+        # print(f"Updating animation frame {frame}")
+        
         ax.clear()
-
         pos = trajectory[frame].positions
         d2min = d2min_series[i]
 
@@ -329,17 +327,14 @@ def animate_d2min_2d(trajectory, cutoff=CUTOFF_DICT, save_path=None):
             norm=norm,
             s=14
         )
-
         ax.set_xlim(0, cell[0])
         ax.set_ylim(0, cell[1])
-
         ax.set_xlabel("x (A)")
         ax.set_ylabel("y (A)")
 
         ax.set_title(
             f"D²_min relative to frame 0 (Frame {frame})"
         )
-
         ax.set_aspect("equal")
 
     ani = FuncAnimation(
@@ -348,13 +343,11 @@ def animate_d2min_2d(trajectory, cutoff=CUTOFF_DICT, save_path=None):
         frames=len(frame_indices),
         interval=100
     )
-
     ani.save(
         save_path,
         fps=12,
         dpi=150
     )
-
     print(f"Saved: {save_path}")
 
     plt.close(fig)
@@ -392,7 +385,7 @@ def animate_d2min_2d_cumulative(trajectory, cutoff=CUTOFF_DICT, save_path=None):
     cell = trajectory[0].cell.lengths()
 
     def update(frame):
-        print(f"Updating animation frame {frame}")
+        # print(f"Updating animation frame {frame}")
         ax.clear()
         pos = trajectory[frame].positions
         ax.scatter(pos[:, 0], pos[:, 1], c=cumulative[frame],
@@ -450,7 +443,6 @@ def animate_d2min_3d(
         111,
         projection="3d"
     )
-
     sm = cm.ScalarMappable(
         cmap=cmap,
         norm=norm
@@ -463,18 +455,16 @@ def animate_d2min_3d(
         shrink=0.7,
         pad=0.1
     )
-
     cbar.set_label(
         "D²_min (A²)",
         fontsize=9
     )
-
     cell = trajectory[0].cell.lengths()
 
     def update(i):
         frame = frame_indices[i]
 
-        print(f"Updating animation frame {frame}")
+        # print(f"Updating animation frame {frame}")
 
         ax.clear()
 
@@ -491,7 +481,6 @@ def animate_d2min_3d(
             s=10,
             alpha=0.8
         )
-
         ax.set_xlim(0, cell[0])
         ax.set_ylim(0, cell[1])
         ax.set_zlim(0, cell[2])
@@ -503,25 +492,21 @@ def animate_d2min_3d(
         ax.set_title(
             f"D²_min relative to frame 0 (Frame {frame})"
         )
-
         ax.view_init(
             elev=elev,
             azim=azim
         )
-
     ani = FuncAnimation(
         fig,
         update,
         frames=len(frame_indices),
         interval=100
     )
-
     ani.save(
         save_path,
         fps=12,
         dpi=150
     )
-
     print(f"Saved: {save_path}")
 
     plt.close(fig)
@@ -555,7 +540,7 @@ def animate_d2min_3d_cumulative(trajectory, cutoff=CUTOFF_DICT, save_path=None,
     cell = trajectory[0].cell.lengths()
 
     def update(frame):
-        print(f"Updating animation frame {frame}")
+        # print(f"Updating animation frame {frame}")
         ax.clear()
         pos = trajectory[frame].positions
         ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2], c=cumulative[frame],
@@ -634,7 +619,7 @@ def animate_d2min_defects_overlay_3d(
 
     def update(i):
         frame = frame_indices[i]
-        print(f"Updating animation frame {frame}")
+        # print(f"Updating animation frame {frame}")
         ax.clear()
 
         pos = trajectory[frame].positions
@@ -744,7 +729,7 @@ def animate_d2min_holes_overlay_3d(
 
     def update(i):
         frame = frame_indices[i]
-        print(f"Updating animation frame {frame}")
+        # print(f"Updating animation frame {frame}")
         ax.clear()
 
         pos = trajectory[frame].positions

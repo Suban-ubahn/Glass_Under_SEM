@@ -40,7 +40,7 @@ from graph.defects import (
 )
 
 from config import VOXEL_EDGE, R_CUT_VOID, GRAPH_CUTOFF_DICT, CUTOFF_DICT, DEFECT_THRESHOLD, DEFECT_K
-from dynamics.flow_units import d2min_consecutive_trajectory
+from dynamics.flow_units import d2min_consecutive_trajectory, d2min_trajectory
 
 # ------------------------------------------------------------
 # 1. KDTree hole animation  (was find_holes_animation.py)
@@ -261,6 +261,107 @@ def animate_defects(trajectory, cutoff=GRAPH_CUTOFF_DICT,
 def animate_d2min_2d(trajectory, cutoff=CUTOFF_DICT, save_path=None):
     """
     Animate atoms at their actual (x, y) positions each frame,
+    colored by D^2_min relative to frame 0.
+
+    For every frame t, D^2_min is calculated between frame 0
+    and frame t.
+
+    The color scale is fixed using the 99th percentile of the
+    final-frame D^2_min values, so the final animation frame
+    corresponds directly to the static d2min_map.png.
+    """
+    if save_path is None:
+        save_path = os.path.join(
+            OUTPUT_DIR,
+            "d2min_dynamics_2d.mp4"
+        )
+
+    print("Creating D^2_min 2D animation")
+
+    # Calculate D^2_min relative to frame 0 for every frame.
+    d2min_series, frame_indices = d2min_trajectory(
+        trajectory,
+        t0=0,
+        frame_step=1,
+        cutoff=cutoff,
+    )
+
+    # Fixed colour scale based on the final frame.
+    vmax = np.nanpercentile(d2min_series[-1], 99)
+
+    cmap = cm.inferno
+    norm = mcolors.Normalize(vmin=0, vmax=vmax)
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+
+    sm = cm.ScalarMappable(
+        cmap=cmap,
+        norm=norm
+    )
+    sm.set_array([])
+
+    cbar = fig.colorbar(
+        sm,
+        ax=ax
+    )
+    cbar.set_label(
+        "D²_min (A²)",
+        fontsize=9
+    )
+
+    cell = trajectory[0].cell.lengths()
+
+    def update(i):
+        frame = frame_indices[i]
+
+        print(f"Updating animation frame {frame}")
+
+        ax.clear()
+
+        pos = trajectory[frame].positions
+        d2min = d2min_series[i]
+
+        ax.scatter(
+            pos[:, 0],
+            pos[:, 1],
+            c=d2min,
+            cmap=cmap,
+            norm=norm,
+            s=14
+        )
+
+        ax.set_xlim(0, cell[0])
+        ax.set_ylim(0, cell[1])
+
+        ax.set_xlabel("x (A)")
+        ax.set_ylabel("y (A)")
+
+        ax.set_title(
+            f"D²_min relative to frame 0 (Frame {frame})"
+        )
+
+        ax.set_aspect("equal")
+
+    ani = FuncAnimation(
+        fig,
+        update,
+        frames=len(frame_indices),
+        interval=100
+    )
+
+    ani.save(
+        save_path,
+        fps=12,
+        dpi=150
+    )
+
+    print(f"Saved: {save_path}")
+
+    plt.close(fig)
+
+def animate_d2min_2d_cumulative(trajectory, cutoff=CUTOFF_DICT, save_path=None):
+    """
+    Animate atoms at their actual (x, y) positions each frame,
     colored by the CUMULATIVE D^2_min each atom has accumulated up
     to that frame. Since D^2_min >= 0 always, this cumulative value
     only ever grows — atoms brighten over the animation as they
@@ -305,8 +406,127 @@ def animate_d2min_2d(trajectory, cutoff=CUTOFF_DICT, save_path=None):
     ani.save(save_path, fps=12, dpi=150)
     print(f"Saved: {save_path}")
 
+def animate_d2min_3d(
+    trajectory,
+    cutoff=CUTOFF_DICT,
+    save_path=None,
+    elev=20,
+    azim=45
+):
+    """
+    Animate atoms in 3D at their real (x, y, z) positions,
+    colored by D^2_min relative to frame 0.
 
-def animate_d2min_3d(trajectory, cutoff=CUTOFF_DICT, save_path=None,
+    For every frame t, D^2_min is calculated between frame 0
+    and frame t.
+
+    The color scale is fixed using the 99th percentile of the
+    final-frame D^2_min values.
+    """
+    if save_path is None:
+        save_path = os.path.join(
+            OUTPUT_DIR,
+            "d2min_dynamics_3d.mp4"
+        )
+
+    print("Creating D^2_min 3D animation")
+
+    # Calculate D^2_min relative to frame 0 for every frame.
+    d2min_series, frame_indices = d2min_trajectory(
+        trajectory,
+        t0=0,
+        frame_step=1,
+        cutoff=cutoff,
+    )
+
+    # Fixed colour scale based on the final frame.
+    vmax = np.nanpercentile(d2min_series[-1], 99)
+
+    cmap = cm.inferno
+    norm = mcolors.Normalize(vmin=0, vmax=vmax)
+
+    fig = plt.figure(figsize=(8, 7))
+    ax = fig.add_subplot(
+        111,
+        projection="3d"
+    )
+
+    sm = cm.ScalarMappable(
+        cmap=cmap,
+        norm=norm
+    )
+    sm.set_array([])
+
+    cbar = fig.colorbar(
+        sm,
+        ax=ax,
+        shrink=0.7,
+        pad=0.1
+    )
+
+    cbar.set_label(
+        "D²_min (A²)",
+        fontsize=9
+    )
+
+    cell = trajectory[0].cell.lengths()
+
+    def update(i):
+        frame = frame_indices[i]
+
+        print(f"Updating animation frame {frame}")
+
+        ax.clear()
+
+        pos = trajectory[frame].positions
+        d2min = d2min_series[i]
+
+        ax.scatter(
+            pos[:, 0],
+            pos[:, 1],
+            pos[:, 2],
+            c=d2min,
+            cmap=cmap,
+            norm=norm,
+            s=10,
+            alpha=0.8
+        )
+
+        ax.set_xlim(0, cell[0])
+        ax.set_ylim(0, cell[1])
+        ax.set_zlim(0, cell[2])
+
+        ax.set_xlabel("x (A)")
+        ax.set_ylabel("y (A)")
+        ax.set_zlabel("z (A)")
+
+        ax.set_title(
+            f"D²_min relative to frame 0 (Frame {frame})"
+        )
+
+        ax.view_init(
+            elev=elev,
+            azim=azim
+        )
+
+    ani = FuncAnimation(
+        fig,
+        update,
+        frames=len(frame_indices),
+        interval=100
+    )
+
+    ani.save(
+        save_path,
+        fps=12,
+        dpi=150
+    )
+
+    print(f"Saved: {save_path}")
+
+    plt.close(fig)
+
+def animate_d2min_3d_cumulative(trajectory, cutoff=CUTOFF_DICT, save_path=None,
                       elev=20, azim=45):
     """
     Same idea as animate_d2min_2d, but atoms are shown at their real

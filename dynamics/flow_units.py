@@ -85,7 +85,7 @@ def compute_d2min(atoms_ref, atoms_cur, cutoff=CUTOFF_DICT, min_neighbors=4):
     cell_ref, cell_cur = atoms_ref.cell.array, atoms_cur.cell.array
     box_cur = np.diag(cell_cur)  # assumes an orthogonal box (true here)
 
-    r0 = (pos_ref[j_idx] - pos_ref[i_idx]) + S @ cell_ref  # reference (fine as-is)
+    r0 = (pos_ref[j_idx] - pos_ref[i_idx]) + S @ cell_ref  # distance between neighbors 
 
     # Current relative vectors: fresh minimum-image reduction, NOT a
     # reused S. This is robust even if atom i or j individually got

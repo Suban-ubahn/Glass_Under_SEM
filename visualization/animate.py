@@ -569,6 +569,97 @@ def animate_d2min_3d_cumulative(trajectory, cutoff=CUTOFF_DICT, save_path=None,
     ani.save(save_path, fps=12, dpi=150)
     print(f"Saved: {save_path}")
 
+def animate_d2min_defects_overlay_3d(
+    trajectory,
+    cutoff=CUTOFF_DICT,
+    k=DEFECT_K,
+    save_path=None,
+    elev=20,
+    azim=45,
+):
+    """
+    3D animation overlaying D^2_min (relative to frame 0) with defect
+    atoms highlighted on top, so spatial agreement between high-d2min
+    regions and defect clusters can be checked directly, frame by frame.
+
+    All atoms are drawn colored by D^2_min (same fixed color scale as
+    animate_d2min_3d). Atoms currently classified as defects are
+    re-drawn on top with a black edge so they stand out regardless of
+    their d2min color.
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "d2min_defects_overlay_3d.mp4")
+    print("Creating D^2_min / defects overlay animation")
+
+    d2min_series, frame_indices = d2min_trajectory(
+        trajectory, t0=0, frame_step=1, cutoff=cutoff,
+    )
+
+    # # Defect mask per frame, aligned to the same atom ordering as d2min_series.
+    # defect_masks = []
+    # for frame in frame_indices:
+    #     atoms = trajectory[frame]
+    #     g = atoms_to_pyg(atoms, graph_cutoff)
+    #     degrees = compute_degrees(g)
+    #     Z = g.x.view(-1)
+    #     defects = classify_defects_statistical(degrees, Z, k=k)
+    #     defect_masks.append(np.asarray(defects))
+ 
+    atoms0 = trajectory[0]
+    g0 = atoms_to_pyg(atoms0, cutoff)
+    degrees0 = compute_degrees(g0)
+    Z0 = g0.x.view(-1)
+    mask = np.asarray(classify_defects_statistical(degrees0, Z0, k=k))
+
+    vmax = np.nanpercentile(d2min_series[-1], 99)
+    cmap = cm.inferno
+    norm = mcolors.Normalize(vmin=0, vmax=vmax)
+
+    fig = plt.figure(figsize=(8, 7))
+    ax = fig.add_subplot(111, projection="3d")
+
+    sm = cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, shrink=0.7, pad=0.1)
+    cbar.set_label("D²_min (A²)", fontsize=9)
+
+    legend_elements = [
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="gray",
+               markeredgecolor="none", markersize=6, label="Atoms (by D²_min)"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="gray",
+               markeredgecolor="black", markersize=8, label="Defect atoms"),
+    ]
+
+    cell = trajectory[0].cell.lengths()
+
+    def update(i):
+        frame = frame_indices[i]
+        print(f"Updating animation frame {frame}")
+        ax.clear()
+
+        pos = trajectory[frame].positions
+        d2min = d2min_series[i]
+        # mask = mask
+
+        ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
+                   c=d2min, cmap=cmap, norm=norm, s=10, alpha=0.6)
+
+        if mask.any():
+            ax.scatter(pos[mask, 0], pos[mask, 1], pos[mask, 2],
+                       c=d2min[mask], cmap=cmap, norm=norm,
+                       s=40, edgecolors="black", linewidths=0.6)
+
+        ax.set_xlim(0, cell[0]); ax.set_ylim(0, cell[1]); ax.set_zlim(0, cell[2])
+        ax.set_xlabel("x (A)"); ax.set_ylabel("y (A)"); ax.set_zlabel("z (A)")
+        ax.set_title(f"D²_min & defects relative to frame 0 (Frame {frame})")
+        ax.view_init(elev=elev, azim=azim)
+        ax.legend(handles=legend_elements, loc="upper left", fontsize=7)
+
+    ani = FuncAnimation(fig, update, frames=len(frame_indices), interval=100)
+    ani.save(save_path, fps=12, dpi=150)
+    print(f"Saved: {save_path}")
+    plt.close(fig)
+
 # ------------------------------------------------------------
 # Main — run all three animations
 # ------------------------------------------------------------
@@ -584,3 +675,98 @@ if __name__ == "__main__":
     # animate_defects(trajectory, save_path=None)
 
     print("Done.")
+
+def animate_d2min_holes_overlay_3d(
+    trajectory,
+    cutoff=CUTOFF_DICT,
+    voxel_edge=VOXEL_EDGE,
+    save_path=None,
+    elev=20,
+    azim=45,
+):
+    """
+    3D animation overlaying D^2_min (relative to frame 0) with FFT hole
+    peaks (holes/fft.py) re-detected independently on every frame, so
+    the overlay shows whether high-d2min atoms sit near wherever holes
+    currently are — not near a fixed initial hole layout.
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "d2min_holes_overlay_3d.mp4")
+    print("Creating D^2_min / holes overlay animation")
+
+    d2min_series, frame_indices = d2min_trajectory(
+        trajectory, t0=0, frame_step=1, cutoff=cutoff,
+    )
+
+    # Redetect holes per frame and collect strengths for a global color/size scale.
+    all_hole_data = []
+    all_strengths = []
+    for frame in frame_indices:
+        atoms = trajectory[frame]
+        Vcell = compute_Vcell(atoms, voxel_edge)
+        Vloch = compute_Vloch(Vcell, voxel_edge)
+        peak_idx, peak_v = find_hole_peaks(Vloch)
+        hole_pos = voxel_to_position(peak_idx, voxel_edge)
+        all_hole_data.append((hole_pos, peak_v))
+        if len(peak_v) > 0:
+            all_strengths.extend(peak_v)
+
+    vmax_d2min = np.nanpercentile(d2min_series[-1], 99)
+    cmap_d2min = cm.inferno
+    norm_d2min = mcolors.Normalize(vmin=0, vmax=vmax_d2min)
+
+    hole_vmin = min(all_strengths) if all_strengths else 0
+    hole_vmax = max(all_strengths) if all_strengths else 1
+    cmap_hole = cm.viridis
+    norm_hole = mcolors.Normalize(vmin=hole_vmin, vmax=hole_vmax)
+
+    fig = plt.figure(figsize=(8, 7))
+    ax = fig.add_subplot(111, projection="3d")
+
+    sm_d2min = cm.ScalarMappable(cmap=cmap_d2min, norm=norm_d2min)
+    sm_d2min.set_array([])
+    cbar1 = fig.colorbar(sm_d2min, ax=ax, shrink=0.6, pad=0.05)
+    cbar1.set_label("D²_min (A²)", fontsize=9)
+
+    sm_hole = cm.ScalarMappable(cmap=cmap_hole, norm=norm_hole)
+    sm_hole.set_array([])
+    cbar2 = fig.colorbar(sm_hole, ax=ax, shrink=0.6, pad=0.12)
+    cbar2.set_label("Hole strength (Vloch)", fontsize=9)
+
+    legend_elements = [
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="gray",
+               markersize=6, label="Atoms (by D²_min)"),
+        Line2D([0], [0], marker="^", color="w", markerfacecolor=cmap_hole(0.8),
+               markersize=8, label="Hole peaks (by strength)"),
+    ]
+
+    cell = trajectory[0].cell.lengths()
+
+    def update(i):
+        frame = frame_indices[i]
+        print(f"Updating animation frame {frame}")
+        ax.clear()
+
+        pos = trajectory[frame].positions
+        d2min = d2min_series[i]
+        hole_pos, peak_v = all_hole_data[i]
+
+        ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
+                   c=d2min, cmap=cmap_d2min, norm=norm_d2min, s=10, alpha=0.6)
+
+        if len(hole_pos) > 0:
+            sizes = 20 + 80 * (peak_v - hole_vmin) / (hole_vmax - hole_vmin + 1e-8)
+            ax.scatter(hole_pos[:, 0], hole_pos[:, 1], hole_pos[:, 2],
+                       c=peak_v, cmap=cmap_hole, norm=norm_hole,
+                       s=sizes, marker="^", alpha=0.9)
+
+        ax.set_xlim(0, cell[0]); ax.set_ylim(0, cell[1]); ax.set_zlim(0, cell[2])
+        ax.set_xlabel("x (A)"); ax.set_ylabel("y (A)"); ax.set_zlabel("z (A)")
+        ax.set_title(f"D²_min & holes relative to frame 0 (Frame {frame})")
+        ax.view_init(elev=elev, azim=azim)
+        ax.legend(handles=legend_elements, loc="upper left", fontsize=7)
+
+    ani = FuncAnimation(fig, update, frames=len(frame_indices), interval=100)
+    ani.save(save_path, fps=12, dpi=150)
+    print(f"Saved: {save_path}")
+    plt.close(fig)

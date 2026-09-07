@@ -544,3 +544,33 @@ def plot_d2min_map_3d(atoms_ref, d2min, save_path="dynamics/d2min_map_3d.png",
     plt.savefig(save_path, dpi=300)
     plt.close()
     print(f"Saved: {save_path}")
+
+def plot_d2min_hole_distance(stats, save_path=None):
+    """
+    Mean D^2_min per distance-to-nearest-hole group (near/mid/far,
+    recomputed each frame), over the trajectory. If the "near" line
+    sits consistently above "far", d2min is concentrated close to
+    wherever holes currently are.
+    """
+    fig, ax = plt.subplots(figsize=(7, 5))
+
+    frames = stats["frame_indices"]
+    bin_means = stats["bin_means"]
+    n_bins = bin_means.shape[1]
+    labels = ["Near", "Mid", "Far"] if n_bins == 3 else [f"Bin {b}" for b in range(n_bins)]
+    colors = cm.viridis(np.linspace(0, 0.85, n_bins))
+
+    for b in range(n_bins):
+        ax.plot(frames, bin_means[:, b], label=labels[b], color=colors[b])
+
+    ax.set_xlabel("Frame")
+    ax.set_ylabel("Mean D²_min (Å²)")
+    ax.set_title("D²_min by distance to nearest hole peak")
+    ax.legend()
+
+    if save_path:
+        fig.savefig(save_path, dpi=200)
+        print(f"Saved: {save_path}")
+
+    plt.show()
+    return fig, ax

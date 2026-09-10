@@ -39,7 +39,7 @@ from graph.defects import (
     get_connected_components,
 )
 
-from config import VOXEL_EDGE, R_CUT_VOID, GRAPH_CUTOFF_DICT, CUTOFF_DICT, DEFECT_THRESHOLD, DEFECT_K
+from config import VOXEL_EDGE, R_CUT_VOID, CUTOFF_DICT, DEFECT_THRESHOLD, DEFECT_K
 from dynamics.flow_units import d2min_consecutive_trajectory, d2min_trajectory
 
 # ------------------------------------------------------------
@@ -174,7 +174,7 @@ def animate_holes_fft(trajectory, voxel_edge=VOXEL_EDGE,
 # 3. Defect cluster animation  (was visualize_defects_animation.py)
 # ------------------------------------------------------------
 
-def animate_defects(trajectory, cutoff=GRAPH_CUTOFF_DICT,
+def animate_defects(trajectory, cutoff=CUTOFF_DICT,
                     threshold=DEFECT_THRESHOLD,
                     save_path=None):
     """
@@ -557,6 +557,7 @@ def animate_d2min_3d_cumulative(trajectory, cutoff=CUTOFF_DICT, save_path=None,
 def animate_d2min_defects_overlay_3d(
     trajectory,
     cutoff=CUTOFF_DICT,
+    graph_cutoff=CUTOFF_DICT,
     k=DEFECT_K,
     save_path=None,
     elev=20,
@@ -564,13 +565,22 @@ def animate_d2min_defects_overlay_3d(
 ):
     """
     3D animation overlaying D^2_min (relative to frame 0) with defect
-    atoms highlighted on top, so spatial agreement between high-d2min
-    regions and defect clusters can be checked directly, frame by frame.
+    clusters and their bonds drawn on top, so spatial agreement between
+    high-d2min regions and defect clusters can be checked directly,
+    frame by frame.
 
     All atoms are drawn colored by D^2_min (same fixed color scale as
-    animate_d2min_3d). Atoms currently classified as defects are
-    re-drawn on top with a black edge so they stand out regardless of
-    their d2min color.
+    animate_d2min_3d). Defect clusters are re-detected every frame and
+    re-drawn on top exactly as in animate_defects(): cluster atoms and
+    the bonds between them, colored by cluster size (fixed scale across
+    the whole trajectory).
+
+    `cutoff` (first-minimum, full coordination shell — config.CUTOFF_DICT)
+    is used only for the D^2_min affine fit. `graph_cutoff` (first-peak,
+    literal bond distance — config.GRAPH_CUTOFF_DICT) is used only for
+    building the defect graph/clusters, same as animate_defects() —
+    passing the D^2_min cutoff there instead would give the defect graph
+    too many edges (see config.py's CUTOFF_* vs GRAPH_CUTOFF_DICT note).
     """
     if save_path is None:
         save_path = os.path.join(OUTPUT_DIR, "d2min_defects_overlay_3d.mp4")
@@ -580,63 +590,94 @@ def animate_d2min_defects_overlay_3d(
         trajectory, t0=0, frame_step=1, cutoff=cutoff,
     )
 
-    # # Defect mask per frame, aligned to the same atom ordering as d2min_series.
-    # defect_masks = []
-    # for frame in frame_indices:
-    #     atoms = trajectory[frame]
-    #     g = atoms_to_pyg(atoms, graph_cutoff)
-    #     degrees = compute_degrees(g)
-    #     Z = g.x.view(-1)
-    #     defects = classify_defects_statistical(degrees, Z, k=k)
-    #     defect_masks.append(np.asarray(defects))
- 
-    atoms0 = trajectory[0]
-    g0 = atoms_to_pyg(atoms0, cutoff)
-    degrees0 = compute_degrees(g0)
-    Z0 = g0.x.view(-1)
-    mask = np.asarray(classify_defects_statistical(degrees0, Z0, k=k))
+    # Re-detect defect clusters on every frame (same approach as
+    # animate_defects): precompute all frames' cluster data up front so
+    # the cluster-size color scale can be normalised across the whole
+    # trajectory, not just one frame.
+    all_cluster_data = []
+    all_sizes = []
+
+    for frame in frame_indices:
+        atoms = trajectory[frame]
+        g = atoms_to_pyg(atoms, graph_cutoff)
+        degrees = compute_degrees(g)
+        Z = g.x.view(-1)
+        defects = classify_defects_statistical(degrees, Z, k=k)
+        subgraph, _ = build_defect_subgraph(g, defects, cutoff=graph_cutoff)
+
+        if subgraph is None:
+            all_cluster_data.append([])
+            continue
+
+        pos = subgraph.pos.cpu().numpy()
+        edge_index = subgraph.edge_index.cpu().numpy()
+        components = get_connected_components(edge_index, pos.shape[0])
+
+        frame_clusters = []
+        for comp in components:
+            comp = np.array(comp)
+            size = len(comp)
+            all_sizes.append(size)
+            mask_edges = np.isin(edge_index[0], comp) & np.isin(edge_index[1], comp)
+            frame_clusters.append((pos[comp], edge_index[:, mask_edges], comp, size))
+
+        all_cluster_data.append(frame_clusters)
 
     vmax = np.nanpercentile(d2min_series[-1], 99)
     cmap = cm.inferno
     norm = mcolors.Normalize(vmin=0, vmax=vmax)
+
+    size_vmin = min(all_sizes) if all_sizes else 1
+    size_vmax = max(all_sizes) if all_sizes else 2
+    cmap_cluster = cm.plasma
+    norm_cluster = mcolors.Normalize(vmin=size_vmin, vmax=size_vmax)
 
     fig = plt.figure(figsize=(8, 7))
     ax = fig.add_subplot(111, projection="3d")
 
     sm = cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, shrink=0.7, pad=0.1)
-    cbar.set_label("D²_min (A²)", fontsize=9)
+    cbar1 = fig.colorbar(sm, ax=ax, shrink=0.6, pad=0.05)
+    cbar1.set_label("D²_min (A²)", fontsize=9)
+
+    sm_cluster = cm.ScalarMappable(cmap=cmap_cluster, norm=norm_cluster)
+    sm_cluster.set_array([])
+    cbar2 = fig.colorbar(sm_cluster, ax=ax, shrink=0.6, pad=0.12)
+    cbar2.set_label("Defect cluster size (atoms)", fontsize=9)
 
     legend_elements = [
         Line2D([0], [0], marker="o", color="w", markerfacecolor="gray",
                markeredgecolor="none", markersize=6, label="Atoms (by D²_min)"),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="gray",
-               markeredgecolor="black", markersize=8, label="Defect atoms"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=cmap_cluster(0.8),
+               markeredgecolor="black", markersize=8, label="Defect cluster atoms"),
+        Line2D([0], [0], color=cmap_cluster(0.8), linewidth=1.5, label="Cluster bonds"),
     ]
 
     cell = trajectory[0].cell.lengths()
 
     def update(i):
         frame = frame_indices[i]
-        # print(f"Updating animation frame {frame}")
         ax.clear()
 
         pos = trajectory[frame].positions
         d2min = d2min_series[i]
-        # mask = mask
 
         ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
-                   c=d2min, cmap=cmap, norm=norm, s=10, alpha=0.6)
+                   c=d2min, cmap=cmap, norm=norm, s=10, alpha=0.5)
 
-        if mask.any():
-            ax.scatter(pos[mask, 0], pos[mask, 1], pos[mask, 2],
-                       c=d2min[mask], cmap=cmap, norm=norm,
-                       s=40, edgecolors="black", linewidths=0.6)
+        for cluster_pos, edges, comp, size in all_cluster_data[i]:
+            color = cmap_cluster(norm_cluster(size))
+            ax.scatter(cluster_pos[:, 0], cluster_pos[:, 1], cluster_pos[:, 2],
+                       s=30, color=color, edgecolors="black", linewidths=0.4, alpha=0.95)
+            for a, b in edges.T:
+                p1 = cluster_pos[np.where(comp == a)[0][0]]
+                p2 = cluster_pos[np.where(comp == b)[0][0]]
+                ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]],
+                        color=color, linewidth=1.2, alpha=0.8)
 
         ax.set_xlim(0, cell[0]); ax.set_ylim(0, cell[1]); ax.set_zlim(0, cell[2])
         ax.set_xlabel("x (A)"); ax.set_ylabel("y (A)"); ax.set_zlabel("z (A)")
-        ax.set_title(f"D²_min & defects relative to frame 0 (Frame {frame})")
+        ax.set_title(f"D²_min & defect clusters relative to frame 0 (Frame {frame})")
         ax.view_init(elev=elev, azim=azim)
         ax.legend(handles=legend_elements, loc="upper left", fontsize=7)
 

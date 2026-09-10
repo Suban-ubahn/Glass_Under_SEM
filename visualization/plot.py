@@ -546,7 +546,7 @@ def plot_d2min_map_3d(atoms_ref, d2min, save_path="dynamics/d2min_map_3d.png",
     plt.close()
     print(f"Saved: {save_path}")
 
-def plot_d2min_defect_comparison(stats, save_path=OUTPUT_DIR):
+def plot_d2min_defect_comparison(stats, save_path=None):
     """
     Mean D^2_min for defect vs non-defect atoms over the trajectory
     (relative to frame 0). If the defect line consistently sits above
@@ -554,6 +554,8 @@ def plot_d2min_defect_comparison(stats, save_path=OUTPUT_DIR):
     the non-affine dynamics; if the two lines stay close, d2min is
     more diffuse and not concentrated at defect sites.
     """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "d2min_defect_comparison.png")
     fig, ax = plt.subplots(figsize=(7, 5))
 
     frames = stats["frame_indices"]
@@ -572,13 +574,15 @@ def plot_d2min_defect_comparison(stats, save_path=OUTPUT_DIR):
 
     return fig, ax
 
-def plot_d2min_hole_distance(stats, save_path=OUTPUT_DIR):
+def plot_d2min_hole_distance(stats, save_path=None):
     """
     Mean D^2_min per distance-to-nearest-hole group (near/mid/far,
     recomputed each frame), over the trajectory. If the "near" line
     sits consistently above "far", d2min is concentrated close to
     wherever holes currently are.
     """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "d2min_hole_distance.png")
     fig, ax = plt.subplots(figsize=(7, 5))
 
     frames = stats["frame_indices"]

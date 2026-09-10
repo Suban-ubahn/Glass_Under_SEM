@@ -41,39 +41,11 @@ python scripts/build_d2min_animations.py
 
 echo ""
 echo "=== D2min vs defects: overlay animation + distance stats ==="
-python -c "
-from data_io.trajectory import load_trajectory
-from config import TRAJECTORY_FILE
-
-from visualization.animate import animate_d2min_defects_overlay_3d
-from analysis.d2min_comparison import compute_d2min_defect_stats
-from visualization.plot import plot_d2min_defect_comparison
-
-trajectory = load_trajectory(TRAJECTORY_FILE)
-
-stats = compute_d2min_defect_stats(trajectory)
-plot_d2min_defect_comparison(stats)
-
-animate_d2min_defects_overlay_3d(trajectory)
-"
+python scripts/run_d2min_defect_comparison.py
 
 echo ""
 echo "=== D2min vs holes: overlay animation + distance stats ==="
-python -c "
-from data_io.trajectory import load_trajectory
-from config import TRAJECTORY_FILE
-
-from visualization.animate import animate_d2min_holes_overlay_3d
-from analysis.d2min_comparison import compute_d2min_hole_distance_stats
-from visualization.plot import plot_d2min_hole_distance
-
-trajectory = load_trajectory(TRAJECTORY_FILE)
-
-animate_d2min_holes_overlay_3d(trajectory)
-
-stats = compute_d2min_hole_distance_stats(trajectory)
-plot_d2min_hole_distance(stats)
-"
+python scripts/run_d2min_hole_comparison.py
 
 echo ""
 echo "=== Done ==="

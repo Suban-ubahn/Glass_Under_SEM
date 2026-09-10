@@ -5,6 +5,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import inspect
 from utils import get_output_dir
 OUTPUT_DIR = get_output_dir()
@@ -545,7 +546,7 @@ def plot_d2min_map_3d(atoms_ref, d2min, save_path="dynamics/d2min_map_3d.png",
     plt.close()
     print(f"Saved: {save_path}")
 
-def plot_d2min_defect_comparison(stats, save_path=None):
+def plot_d2min_defect_comparison(stats, save_path=OUTPUT_DIR):
     """
     Mean D^2_min for defect vs non-defect atoms over the trajectory
     (relative to frame 0). If the defect line consistently sits above
@@ -564,13 +565,14 @@ def plot_d2min_defect_comparison(stats, save_path=None):
     ax.set_title("D²_min by defect membership, relative to frame 0")
     ax.legend()
 
-    if save_path:
-        fig.savefig(save_path, dpi=200)
-        print(f"Saved: {save_path}")
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
 
     return fig, ax
 
-def plot_d2min_hole_distance(stats, save_path=None):
+def plot_d2min_hole_distance(stats, save_path=OUTPUT_DIR):
     """
     Mean D^2_min per distance-to-nearest-hole group (near/mid/far,
     recomputed each frame), over the trajectory. If the "near" line
@@ -593,8 +595,9 @@ def plot_d2min_hole_distance(stats, save_path=None):
     ax.set_title("D²_min by distance to nearest hole peak")
     ax.legend()
 
-    if save_path:
-        fig.savefig(save_path, dpi=200)
-        print(f"Saved: {save_path}")
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
 
     return fig, ax

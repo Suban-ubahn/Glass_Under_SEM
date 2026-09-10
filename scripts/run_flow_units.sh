@@ -19,7 +19,7 @@ set -e  # stop on first error
 
 echo "=== Activating environment ==="
 # source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate glass_sem_env
+# conda activate glass_sem_env
 
 echo "=== Checking trajectory file ==="
 python -c "
@@ -51,10 +51,10 @@ from visualization.plot import plot_d2min_defect_comparison
 
 trajectory = load_trajectory(TRAJECTORY_FILE)
 
-animate_d2min_defects_overlay_3d(trajectory)
-
 stats = compute_d2min_defect_stats(trajectory)
 plot_d2min_defect_comparison(stats)
+
+animate_d2min_defects_overlay_3d(trajectory)
 "
 
 echo ""

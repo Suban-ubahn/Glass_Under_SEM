@@ -564,45 +564,61 @@ def animate_d2min_defects_overlay_3d(
     azim=45,
 ):
     """
-    3D animation overlaying D^2_min (relative to frame 0) with defect
-    clusters and their bonds drawn on top, so spatial agreement between
-    high-d2min regions and defect clusters can be checked directly,
-    frame by frame.
+    3D animation overlaying D^2_min relative to frame 0 with defect
+    clusters and their bonds.
 
-    All atoms are drawn colored by D^2_min (same fixed color scale as
-    animate_d2min_3d). Defect clusters are re-detected every frame and
-    re-drawn on top exactly as in animate_defects(): cluster atoms and
-    the bonds between them, colored by cluster size (fixed scale across
-    the whole trajectory).
+    Non-defect atoms are shown very faintly in the background so that
+    defect clusters remain visually prominent.
 
-    `cutoff` (first-minimum, full coordination shell — config.CUTOFF_DICT)
-    is used only for the D^2_min affine fit. `graph_cutoff` (first-peak,
-    literal bond distance — config.GRAPH_CUTOFF_DICT) is used only for
-    building the defect graph/clusters, same as animate_defects() —
-    passing the D^2_min cutoff there instead would give the defect graph
-    too many edges (see config.py's CUTOFF_* vs GRAPH_CUTOFF_DICT note).
+    D^2_min:
+        - fixed reference frame = frame 0
+        - color scale fixed using the 99th percentile of the final frame
+        - shown with the Blues colormap
+
+    Defect clusters:
+        - re-detected independently in every frame
+        - cluster atoms and bonds shown on top
+        - color represents cluster size
+        - fixed color scale across the whole trajectory
+        - shown with the Reds colormap
+
+    `cutoff` is used for the D^2_min affine fit.
+    `graph_cutoff` is used for building the defect graph.
     """
+
     if save_path is None:
-        save_path = os.path.join(OUTPUT_DIR, "d2min_defects_overlay_3d.mp4")
+        save_path = os.path.join(
+            OUTPUT_DIR,
+            "d2min_defects_overlay_3d.mp4"
+        )
+
     print("Creating D^2_min / defects overlay animation")
 
-    d2min_series, frame_indices = d2min_trajectory(
-        trajectory, t0=0, frame_step=1, cutoff=cutoff,
-    )
+    # ------------------------------------------------------------
+    # D^2_min relative to frame 0
+    # ------------------------------------------------------------
 
-    # Re-detect defect clusters on every frame (same approach as
-    # animate_defects): precompute all frames' cluster data up front so
-    # the cluster-size color scale can be normalised across the whole
-    # trajectory, not just one frame.
+    d2min_series, frame_indices = d2min_trajectory(trajectory, t0=0, frame_step=1,  cutoff=cutoff)
+
+    # ------------------------------------------------------------
+    # Precompute defect clusters for every frame
+    # ------------------------------------------------------------
+
     all_cluster_data = []
     all_sizes = []
 
     for frame in frame_indices:
         atoms = trajectory[frame]
+
+        # Build graph with the graph-specific cutoff
         g = atoms_to_pyg(atoms, graph_cutoff)
         degrees = compute_degrees(g)
         Z = g.x.view(-1)
+
+        # Statistical defect classification
         defects = classify_defects_statistical(degrees, Z, k=k)
+
+        # Build graph containing only defect atoms
         subgraph, _ = build_defect_subgraph(g, defects, cutoff=graph_cutoff)
 
         if subgraph is None:
@@ -614,70 +630,395 @@ def animate_d2min_defects_overlay_3d(
         components = get_connected_components(edge_index, pos.shape[0])
 
         frame_clusters = []
+
         for comp in components:
             comp = np.array(comp)
+
             size = len(comp)
             all_sizes.append(size)
-            mask_edges = np.isin(edge_index[0], comp) & np.isin(edge_index[1], comp)
-            frame_clusters.append((pos[comp], edge_index[:, mask_edges], comp, size))
+            mask_edges = (np.isin(edge_index[0], comp) & np.isin(edge_index[1], comp))
+
+            frame_clusters.append(
+                (
+                    pos[comp],
+                    edge_index[:, mask_edges],
+                    comp,
+                    size,
+                )
+            )
 
         all_cluster_data.append(frame_clusters)
 
-    vmax = np.nanpercentile(d2min_series[-1], 99)
-    cmap = cm.inferno
-    norm = mcolors.Normalize(vmin=0, vmax=vmax)
+    # ------------------------------------------------------------
+    # Colour scales
+    # ------------------------------------------------------------
 
+    # D^2_min scale: based on final frame
+    vmax_d2min = np.nanpercentile(d2min_series[-1], 99)
+    cmap_d2min = cm.Blues
+    norm_d2min = mcolors.Normalize(vmin=0, vmax=vmax_d2min)
+
+    # Cluster-size scale: fixed over complete trajectory
     size_vmin = min(all_sizes) if all_sizes else 1
     size_vmax = max(all_sizes) if all_sizes else 2
-    cmap_cluster = cm.plasma
+
+    cmap_cluster = cm.Reds
     norm_cluster = mcolors.Normalize(vmin=size_vmin, vmax=size_vmax)
 
-    fig = plt.figure(figsize=(8, 7))
-    ax = fig.add_subplot(111, projection="3d")
+    # ------------------------------------------------------------
+    # Figure
+    # ------------------------------------------------------------
 
-    sm = cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    cbar1 = fig.colorbar(sm, ax=ax, shrink=0.6, pad=0.05)
+    fig = plt.figure(figsize=(9, 8))
+    ax = fig.add_subplot( 111, projection="3d")
+
+    # D^2_min colorbar
+    sm_d2min = cm.ScalarMappable( cmap=cmap_d2min, norm=norm_d2min)
+    sm_d2min.set_array([])
+
+    cbar1 = fig.colorbar( sm_d2min, ax=ax, shrink=0.6, pad=0.05)
+
     cbar1.set_label("D²_min (A²)", fontsize=9)
 
+    # Defect cluster size colorbar
     sm_cluster = cm.ScalarMappable(cmap=cmap_cluster, norm=norm_cluster)
     sm_cluster.set_array([])
+
     cbar2 = fig.colorbar(sm_cluster, ax=ax, shrink=0.6, pad=0.12)
     cbar2.set_label("Defect cluster size (atoms)", fontsize=9)
 
+    # ------------------------------------------------------------
+    # Legend
+    # ------------------------------------------------------------
+
     legend_elements = [
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="gray",
-               markeredgecolor="none", markersize=6, label="Atoms (by D²_min)"),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor=cmap_cluster(0.8),
-               markeredgecolor="black", markersize=8, label="Defect cluster atoms"),
-        Line2D([0], [0], color=cmap_cluster(0.8), linewidth=1.5, label="Cluster bonds"),
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor="gray",
+            markeredgecolor="none",
+            markersize=5,
+            alpha=0.25,
+            label="Non-defect atoms",
+        ),
+
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor=cmap_cluster(0.8),
+            markeredgecolor="black",
+            markersize=8,
+            label="Defect atoms",
+        ),
+
+        Line2D(
+            [0],
+            [0],
+            color=cmap_cluster(0.8),
+            linewidth=1.5,
+            label="Defect cluster bonds",
+        ),
     ]
+
+    # ------------------------------------------------------------
+    # Fixed simulation-cell limits
+    # ------------------------------------------------------------
 
     cell = trajectory[0].cell.lengths()
 
+    # ------------------------------------------------------------
+    # Animation update
+    # ------------------------------------------------------------
+
     def update(i):
+        frame = frame_indices[i]
+
+        print(f"Updating animation frame {frame}")
+
+        ax.clear()
+
+        atoms = trajectory[frame]
+        pos = atoms.positions
+        d2min = d2min_series[i]
+
+        # --------------------------------------------------------
+        # Background: all atoms, extremely faint
+        # --------------------------------------------------------
+
+        ax.scatter(
+            pos[:, 0],
+            pos[:, 1],
+            pos[:, 2],
+            c=d2min,
+            cmap=cmap_d2min,
+            norm=norm_d2min,
+            s=20,
+            alpha=0.1,
+            edgecolors="none",
+        )
+
+        # --------------------------------------------------------
+        # Defect clusters: draw prominently on top
+        # --------------------------------------------------------
+
+        for cluster_pos, edges, comp, size in all_cluster_data[i]:
+
+            color = cmap_cluster(norm_cluster(size))
+
+            # Cluster atoms
+            ax.scatter(
+                cluster_pos[:, 0],
+                cluster_pos[:, 1],
+                cluster_pos[:, 2],
+                s=35,
+                color=color,
+                edgecolors="black",
+                linewidths=0.5,
+                alpha=0.95,
+            )
+
+            # Cluster bonds
+            for a, b in edges.T:
+                p1 = cluster_pos[np.where(comp == a)[0][0]]
+                p2 = cluster_pos[np.where(comp == b)[0][0]]
+
+                ax.plot(
+                    [p1[0], p2[0]],
+                    [p1[1], p2[1]],
+                    [p1[2], p2[2]],
+                    color=color,
+                    linewidth=2,
+                    alpha=1,
+                )
+
+        # --------------------------------------------------------
+        # Axes
+        # --------------------------------------------------------
+
+        ax.set_xlim(0, cell[0])
+        ax.set_ylim(0, cell[1])
+        ax.set_zlim(0, cell[2])
+
+        ax.set_xlabel("x (A)")
+        ax.set_ylabel("y (A)")
+        ax.set_zlabel("z (A)")
+
+        ax.set_title(f"D²_min & defect clusters relative to frame 0 " f"(Frame {frame})")
+
+        ax.view_init(elev=elev, azim=azim)
+
+        ax.legend(handles=legend_elements, loc="upper left", fontsize=7)
+
+    # ------------------------------------------------------------
+    # Create and save animation
+    # ------------------------------------------------------------
+
+    ani = FuncAnimation(fig, update, frames=len(frame_indices), interval=100)
+    ani.save(save_path, fps=12, dpi=150)
+    print(f"Saved: {save_path}")
+    plt.close(fig)
+
+def animate_d2min_holes_overlay_3d(
+    trajectory,
+    cutoff=CUTOFF_DICT,
+    voxel_edge=VOXEL_EDGE,
+    save_path=None,
+    elev=20,
+    azim=45,
+):
+    """
+    3D animation overlaying D^2_min (relative to frame 0) with FFT
+    hole peaks re-detected independently on every frame.
+
+    All atoms are shown very faintly and colored by D^2_min.
+
+    Hole peaks are shown as spheres whose size represents hole
+    strength (Vloch). Hole color is kept fixed so that size, rather
+    than color, carries the hole-size information.
+    """
+    if save_path is None:
+        save_path = os.path.join(
+            OUTPUT_DIR,
+            "d2min_holes_overlay_3d.mp4"
+        )
+
+    print("Creating D^2_min / holes overlay animation")
+
+    # ------------------------------------------------------------
+    # D^2_min relative to frame 0
+    # ------------------------------------------------------------
+
+    d2min_series, frame_indices = d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=cutoff,)
+
+    # ------------------------------------------------------------
+    # Re-detect holes independently for every frame
+    # ------------------------------------------------------------
+
+    all_hole_data = []
+    all_strengths = []
+
+    for frame in frame_indices:
+        atoms = trajectory[frame]
+
+        Vcell = compute_Vcell(atoms, voxel_edge)
+        Vloch = compute_Vloch(Vcell, voxel_edge)
+
+        peak_idx, peak_v = find_hole_peaks(Vloch)
+        hole_pos = voxel_to_position(peak_idx, voxel_edge)
+
+        all_hole_data.append((hole_pos, peak_v))
+
+        if len(peak_v) > 0:
+            all_strengths.extend(peak_v)
+
+    # ------------------------------------------------------------
+    # Colour scales
+    # ------------------------------------------------------------
+
+    vmax_d2min = np.nanpercentile(
+        d2min_series[-1],
+        99
+    )
+
+    cmap_d2min = cm.inferno
+    norm_d2min = mcolors.Normalize(vmin=0, vmax=vmax_d2min)
+
+    hole_vmin = min(all_strengths) if all_strengths else 0
+    hole_vmax = max(all_strengths) if all_strengths else 1
+
+    # Hole colour is now fixed; strength is represented by size.
+    hole_color = cm.viridis(0.8)
+
+    # ------------------------------------------------------------
+    # Figure
+    # ------------------------------------------------------------
+
+    fig = plt.figure(figsize=(8, 7))
+    ax = fig.add_subplot(
+        111,
+        projection="3d"
+    )
+
+    # D^2_min colourbar
+    sm_d2min = cm.ScalarMappable(cmap=cmap_d2min, norm=norm_d2min)
+    sm_d2min.set_array([])
+
+    cbar = fig.colorbar(
+        sm_d2min,
+        ax=ax,
+        shrink=0.7,
+        pad=0.1
+    )
+    cbar.set_label("D²_min (A²)", fontsize=9)
+
+    # ------------------------------------------------------------
+    # Legend
+    # ------------------------------------------------------------
+
+    legend_elements = [
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor="gray",
+            markeredgecolor="none",
+            markersize=5,
+            alpha=0.6,
+            label="Non-hole atoms (by D²_min)",
+        ),
+        Line2D(
+            [0],
+            [0],
+            marker="o",
+            color="w",
+            markerfacecolor=hole_color,
+            markeredgecolor="black",
+            markersize=9,
+            label="Hole peaks (size = hole strength)",
+        ),
+    ]
+    cell = trajectory[0].cell.lengths()
+
+    # ------------------------------------------------------------
+    # Animation update
+    # ------------------------------------------------------------
+
+    def update(i):
+
         frame = frame_indices[i]
         ax.clear()
 
         pos = trajectory[frame].positions
         d2min = d2min_series[i]
+        hole_pos, peak_v = all_hole_data[i]
 
-        ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
-                   c=d2min, cmap=cmap, norm=norm, s=10, alpha=0.5)
+        # --------------------------------------------------------
+        # Background atoms: very faint
+        # --------------------------------------------------------
 
-        for cluster_pos, edges, comp, size in all_cluster_data[i]:
-            color = cmap_cluster(norm_cluster(size))
-            ax.scatter(cluster_pos[:, 0], cluster_pos[:, 1], cluster_pos[:, 2],
-                       s=30, color=color, edgecolors="black", linewidths=0.4, alpha=0.95)
-            for a, b in edges.T:
-                p1 = cluster_pos[np.where(comp == a)[0][0]]
-                p2 = cluster_pos[np.where(comp == b)[0][0]]
-                ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]],
-                        color=color, linewidth=1.2, alpha=0.8)
+        ax.scatter(
+            pos[:, 0],
+            pos[:, 1],
+            pos[:, 2],
+            c=d2min,
+            cmap=cmap_d2min,
+            norm=norm_d2min,
+            s=8,
+            alpha=0.7,
+            edgecolors="none",
+        )
 
-        ax.set_xlim(0, cell[0]); ax.set_ylim(0, cell[1]); ax.set_zlim(0, cell[2])
-        ax.set_xlabel("x (A)"); ax.set_ylabel("y (A)"); ax.set_zlabel("z (A)")
-        ax.set_title(f"D²_min & defect clusters relative to frame 0 (Frame {frame})")
+        # --------------------------------------------------------
+        # Hole peaks: spheres with size proportional to strength
+        # --------------------------------------------------------
+
+        if len(hole_pos) > 0:
+
+            if hole_vmax > hole_vmin:
+                normalized_strength = (
+                    (peak_v - hole_vmin)
+                    / (hole_vmax - hole_vmin)
+                )
+            else:
+                normalized_strength = np.ones_like(
+                    peak_v,
+                    dtype=float
+                )
+
+            # Marker area scales with hole strength.
+            sizes = 25 + 175 * normalized_strength
+
+            ax.scatter(
+                hole_pos[:, 0],
+                hole_pos[:, 1],
+                hole_pos[:, 2],
+                s=sizes,
+                color=hole_color,
+                edgecolors="black",
+                linewidths=0.5,
+                alpha=0.9,
+                marker="o",
+            )
+
+        # --------------------------------------------------------
+        # Axes
+        # --------------------------------------------------------
+
+        ax.set_xlim(0, cell[0])
+        ax.set_ylim(0, cell[1])
+        ax.set_zlim(0, cell[2])
+
+        ax.set_xlabel("x (A)")
+        ax.set_ylabel("y (A)")
+        ax.set_zlabel("z (A)")
+
+        ax.set_title(f"D²_min & holes relative to frame 0 " f"(Frame {frame})")
+
         ax.view_init(elev=elev, azim=azim)
         ax.legend(handles=legend_elements, loc="upper left", fontsize=7)
 
@@ -701,98 +1042,3 @@ if __name__ == "__main__":
     # animate_defects(trajectory, save_path=None)
 
     print("Done.")
-
-def animate_d2min_holes_overlay_3d(
-    trajectory,
-    cutoff=CUTOFF_DICT,
-    voxel_edge=VOXEL_EDGE,
-    save_path=None,
-    elev=20,
-    azim=45,
-):
-    """
-    3D animation overlaying D^2_min (relative to frame 0) with FFT hole
-    peaks (holes/fft.py) re-detected independently on every frame, so
-    the overlay shows whether high-d2min atoms sit near wherever holes
-    currently are — not near a fixed initial hole layout.
-    """
-    if save_path is None:
-        save_path = os.path.join(OUTPUT_DIR, "d2min_holes_overlay_3d.mp4")
-    print("Creating D^2_min / holes overlay animation")
-
-    d2min_series, frame_indices = d2min_trajectory(
-        trajectory, t0=0, frame_step=1, cutoff=cutoff,
-    )
-
-    # Redetect holes per frame and collect strengths for a global color/size scale.
-    all_hole_data = []
-    all_strengths = []
-    for frame in frame_indices:
-        atoms = trajectory[frame]
-        Vcell = compute_Vcell(atoms, voxel_edge)
-        Vloch = compute_Vloch(Vcell, voxel_edge)
-        peak_idx, peak_v = find_hole_peaks(Vloch)
-        hole_pos = voxel_to_position(peak_idx, voxel_edge)
-        all_hole_data.append((hole_pos, peak_v))
-        if len(peak_v) > 0:
-            all_strengths.extend(peak_v)
-
-    vmax_d2min = np.nanpercentile(d2min_series[-1], 99)
-    cmap_d2min = cm.inferno
-    norm_d2min = mcolors.Normalize(vmin=0, vmax=vmax_d2min)
-
-    hole_vmin = min(all_strengths) if all_strengths else 0
-    hole_vmax = max(all_strengths) if all_strengths else 1
-    cmap_hole = cm.viridis
-    norm_hole = mcolors.Normalize(vmin=hole_vmin, vmax=hole_vmax)
-
-    fig = plt.figure(figsize=(8, 7))
-    ax = fig.add_subplot(111, projection="3d")
-
-    sm_d2min = cm.ScalarMappable(cmap=cmap_d2min, norm=norm_d2min)
-    sm_d2min.set_array([])
-    cbar1 = fig.colorbar(sm_d2min, ax=ax, shrink=0.6, pad=0.05)
-    cbar1.set_label("D²_min (A²)", fontsize=9)
-
-    sm_hole = cm.ScalarMappable(cmap=cmap_hole, norm=norm_hole)
-    sm_hole.set_array([])
-    cbar2 = fig.colorbar(sm_hole, ax=ax, shrink=0.6, pad=0.12)
-    cbar2.set_label("Hole strength (Vloch)", fontsize=9)
-
-    legend_elements = [
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="gray",
-               markersize=6, label="Atoms (by D²_min)"),
-        Line2D([0], [0], marker="^", color="w", markerfacecolor=cmap_hole(0.8),
-               markersize=8, label="Hole peaks (by strength)"),
-    ]
-
-    cell = trajectory[0].cell.lengths()
-
-    def update(i):
-        frame = frame_indices[i]
-        # print(f"Updating animation frame {frame}")
-        ax.clear()
-
-        pos = trajectory[frame].positions
-        d2min = d2min_series[i]
-        hole_pos, peak_v = all_hole_data[i]
-
-        ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
-                   c=d2min, cmap=cmap_d2min, norm=norm_d2min, s=10, alpha=0.6)
-
-        if len(hole_pos) > 0:
-            sizes = 20 + 80 * (peak_v - hole_vmin) / (hole_vmax - hole_vmin + 1e-8)
-            ax.scatter(hole_pos[:, 0], hole_pos[:, 1], hole_pos[:, 2],
-                       c=peak_v, cmap=cmap_hole, norm=norm_hole,
-                       s=sizes, marker="^", alpha=0.9)
-
-        ax.set_xlim(0, cell[0]); ax.set_ylim(0, cell[1]); ax.set_zlim(0, cell[2])
-        ax.set_xlabel("x (A)"); ax.set_ylabel("y (A)"); ax.set_zlabel("z (A)")
-        ax.set_title(f"D²_min & holes relative to frame 0 (Frame {frame})")
-        ax.view_init(elev=elev, azim=azim)
-        ax.legend(handles=legend_elements, loc="upper left", fontsize=7)
-
-    ani = FuncAnimation(fig, update, frames=len(frame_indices), interval=100)
-    ani.save(save_path, fps=12, dpi=150)
-    print(f"Saved: {save_path}")
-    plt.close(fig)

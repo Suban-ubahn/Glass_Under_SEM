@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import inspect
+from scipy.signal import savgol_filter
 from utils import get_output_dir
 OUTPUT_DIR = get_output_dir()
 
@@ -574,34 +575,79 @@ def plot_d2min_defect_comparison(stats, save_path=None):
 
     return fig, ax
 
-def plot_d2min_hole_distance(stats, save_path=None):
+
+def _smooth_series(y, window=7, polyorder=2):
+    """
+    Savitzky-Golay smoothing for display only (doesn't touch the
+    underlying stats). matplotlib has no built-in smoothing — this is
+    what scipy.signal provides for it. NaN frames (e.g. no hole peaks
+    detected that frame) are linearly interpolated over just for the
+    filter pass, then restored as gaps in the output so missing data
+    still reads as missing rather than a fabricated smooth value.
+    """
+    y = np.asarray(y, dtype=float)
+    n = len(y)
+    nan_mask = np.isnan(y)
+    if n < 3 or nan_mask.all():
+        return y
+ 
+    x = np.arange(n)
+    filled = y.copy()
+    if nan_mask.any():
+        filled[nan_mask] = np.interp(x[nan_mask], x[~nan_mask], y[~nan_mask])
+ 
+    w = min(window, n)
+    if w % 2 == 0:
+        w -= 1
+    w = max(w, 3)
+    p = min(polyorder, w - 1)
+ 
+    smoothed = savgol_filter(filled, window_length=w, polyorder=p)
+    smoothed[nan_mask] = np.nan
+    return smoothed
+ 
+ 
+def plot_d2min_hole_distance(stats, save_path=None, smooth=False, smooth_window=10):
     """
     Mean D^2_min per distance-to-nearest-hole group (near/mid/far,
     recomputed each frame), over the trajectory. If the "near" line
     sits consistently above "far", d2min is concentrated close to
     wherever holes currently are.
+ 
+    smooth=True applies a Savitzky-Golay filter (window=smooth_window,
+    cubic-ish local fit) to each bin's line for display; the returned
+    stats dict / bin_means are untouched.
     """
     if save_path is None:
         save_path = os.path.join(OUTPUT_DIR, "d2min_hole_distance.png")
+ 
     fig, ax = plt.subplots(figsize=(7, 5))
-
+ 
     frames = stats["frame_indices"]
     bin_means = stats["bin_means"]
     n_bins = bin_means.shape[1]
-    labels = ["Near", "Mid", "Far"] if n_bins == 3 else [f"Bin {b}" for b in range(n_bins)]
+    prefixes = ["Near", "Mid", "Far"] if n_bins == 3 else [f"Bin {b}" for b in range(n_bins)]
+    mean_edges = np.nanmean(stats["bin_edges"], axis=0)  # shape (n_bins+1,), Å
+    labels = [
+        f"{prefixes[b]} ({mean_edges[b]:.1f}\u2013{mean_edges[b + 1]:.1f} \u00c5, avg)"
+        for b in range(n_bins)
+    ]
     colors = cm.viridis(np.linspace(0, 0.85, n_bins))
-
+ 
     for b in range(n_bins):
-        ax.plot(frames, bin_means[:, b], label=labels[b], color=colors[b])
-
+        y = bin_means[:, b]
+        if smooth:
+            y = _smooth_series(y, window=smooth_window)
+        ax.plot(frames, y, label=labels[b], color=colors[b])
+ 
     ax.set_xlabel("Frame")
     ax.set_ylabel("Mean D²_min (Å²)")
     ax.set_title("D²_min by distance to nearest hole peak")
     ax.legend()
-
+ 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=300)
     plt.close()
     print(f"Saved: {save_path}")
-
+ 
     return fig, ax

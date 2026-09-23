@@ -53,42 +53,48 @@ def compute_d2min_hole_distance_stats(trajectory, cutoff=CUTOFF_DICT,
     nearest current hole peak, and bin atoms into n_bins groups by
     that distance (tertiles by default: near/mid/far). Tracks mean
     D^2_min per distance group over time.
-
+ 
     Bin membership is recomputed every frame since hole positions move
     — this tests whether d2min tracks proximity to wherever holes
-    currently are, not proximity to a fixed initial layout.
+    currently are, not proximity to a fixed initial layout. Since the
+    quantile edges are recomputed per frame too, each bin's distance
+    range drifts over the trajectory; bin_edges is returned so callers
+    can report e.g. an averaged range per bin.
     """
     d2min_series, frame_indices = d2min_trajectory(
         trajectory, t0=0, frame_step=1, cutoff=cutoff,
     )
-
+ 
     n_frames = len(frame_indices)
     bin_means = np.full((n_frames, n_bins), np.nan)
-
+    bin_edges = np.full((n_frames, n_bins + 1), np.nan)
+ 
     for i, frame in enumerate(frame_indices):
         atoms = trajectory[frame]
         d2min = d2min_series[i]
-
+ 
         Vcell = compute_Vcell(atoms, voxel_edge)
         Vloch = compute_Vloch(Vcell, voxel_edge)
         peak_idx, peak_v = find_hole_peaks(Vloch)
         hole_pos = voxel_to_position(peak_idx, voxel_edge)
-
+ 
         if len(hole_pos) == 0:
             continue
-
+ 
         tree = cKDTree(hole_pos)
         dist, _ = tree.query(atoms.positions)
-
+ 
         edges = np.quantile(dist, np.linspace(0, 1, n_bins + 1))
+        bin_edges[i] = edges
         bin_idx = np.clip(np.digitize(dist, edges[1:-1]), 0, n_bins - 1)
-
+ 
         for b in range(n_bins):
             mask = bin_idx == b
             if mask.any():
                 bin_means[i, b] = np.nanmean(d2min[mask])
-
+ 
     return {
         "frame_indices": np.array(frame_indices),
         "bin_means": bin_means,  # shape (n_frames, n_bins); column 0 = nearest to holes
+        "bin_edges": bin_edges,  # shape (n_frames, n_bins+1), Å; quantile edges, recomputed per frame
     }

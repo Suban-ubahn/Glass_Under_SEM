@@ -18,6 +18,74 @@ from ase.neighborlist import neighbor_list
 OUTPUTS_ROOT = "outputs"
 
 
+def unwrap_positions(positions, box):
+    """
+    Remove periodic-boundary "teleports" from a position trajectory by
+    accumulating minimum-image-corrected frame-to-frame displacements
+    — the standard MD unwrap procedure.
+
+    This project's LAMMPS dumps re-wrap coordinates into the primary
+    cell every frame (same issue flagged in
+    dynamics.flow_units.compute_d2min's docstring). Left uncorrected,
+    a SINGLE atom crossing a periodic boundary at any point in the
+    trajectory contributes a spurious ~(box length)^2 term to its
+    displacement covariance — many orders of magnitude larger than a
+    real ~0.01-0.1 Å^2 thermal vibration — and dominates the entire
+    quasi-harmonic mode decomposition (confirmed on this project's own
+    trj.zr50cu50_6750_vib: a handful of such wraps out of >2e6
+    atom-component-frames inflated the softest eigenvalue by roughly
+    7 orders of magnitude before this fix).
+
+    Parameters
+    ----------
+    positions : (T, N, D) array — raw (PBC-wrapped) positions.
+    box : (D,) or (T, D) array — orthogonal box lengths (same
+        assumption as dynamics.flow_units.compute_d2min).
+
+    Returns
+    -------
+    unwrapped : (T, N, D) array — continuous positions.
+    """
+    positions = np.asarray(positions, dtype=float)
+    box = np.asarray(box, dtype=float)
+    if box.ndim == 1:
+        box = np.tile(box, (positions.shape[0], 1))
+
+    unwrapped = np.empty_like(positions)
+    unwrapped[0] = positions[0]
+    for t in range(1, positions.shape[0]):
+        raw = positions[t] - positions[t - 1]
+        b = box[t]
+        correction = b * np.round(raw / b)
+        unwrapped[t] = unwrapped[t - 1] + (raw - correction)
+    return unwrapped
+
+
+def compute_displacements(positions, reference=None):
+    """
+    positions : (T, N, D) array — ALREADY-UNWRAPPED atomic positions
+                over T frames, N atoms, D=2 or D=3 spatial dimensions
+                (see unwrap_positions() — call it yourself first if
+                you're passing in raw trajectory positions). Frames
+                must be topologically aligned (same atom order every
+                frame).
+    reference : (N, D) array, optional — subtracted from every
+                frame. Defaults to the time-average position per
+                atom, matching CAVIAR's own normalization
+                (u = R - mean(R), their Eq. 1) — see
+                analysis/soft_modes.py's module docstring.
+
+    Returns
+    -------
+    u : (T, N, D) array — centered displacements.
+    reference : (N, D) array — the reference actually used.
+    """
+    positions = np.asarray(positions, dtype=float)
+    if reference is None:
+        reference = positions.mean(axis=0)
+    return positions - reference[None, :, :], reference
+
+
 def get_output_dir(name=None):
     """
     Return outputs/<name>/, creating it if it doesn't exist.

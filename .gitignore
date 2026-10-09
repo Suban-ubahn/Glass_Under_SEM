@@ -1,5 +1,6 @@
 *.pyc
 scratch/
+soft_mode_analysis.ipynb
 
 # Python
 __pycache__/

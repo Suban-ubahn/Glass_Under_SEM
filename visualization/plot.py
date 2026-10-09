@@ -651,3 +651,290 @@ def plot_d2min_hole_distance(stats, save_path=None, smooth=False, smooth_window=
     print(f"Saved: {save_path}")
  
     return fig, ax
+
+
+
+# =============================================================
+# Soft-mode / TLS analysis plots
+#   (analysis/soft_modes.py, analysis/tls_detection.py,
+#    analysis/soft_spot_tls_dmin_comparison.py)
+# =============================================================
+
+def plot_participation_spectrum(eigenvalues, participation_ratio,
+                                 soft_mode_mask=None, elements=None, save_path=None):
+    """
+    Participation ratio vs. mode softness (eigenvalue) — the standard
+    diagnostic in the soft-spot literature (Widmer-Cooper & Harrowell
+    2006; Manning & Liu 2011): quasi-localized soft modes appear as
+    low-PR points among the softest (largest-eigenvalue) modes,
+    distinct from the high-PR extended/acoustic branch.
+    `soft_mode_mask` (bool array, optional) highlights the modes
+    actually used for the softness score / fed to
+    tls_detection.detect_tls_amplitude().
+
+    `elements` (array of element symbols, one per mode, optional —
+    e.g. from analysis.element_statistics.mode_dominant_elements())
+    additionally marks each mode's DOMINANT element using marker
+    SHAPE. Color stays reserved for soft_mode_mask: these are two
+    independent categorical splits ("is this mode soft/localized" and
+    "which element dominates it"), so they get two separate visual
+    channels (and two separate legends) rather than fighting over one.
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "participation_spectrum.png")
+    eigenvalues = np.asarray(eigenvalues)
+    participation_ratio = np.asarray(participation_ratio)
+    n_modes = len(eigenvalues)
+
+    markers = ["o", "^", "s", "D", "v", "P"]   # extend if >6 distinct elements ever appear
+    if elements is not None:
+        elements = np.asarray(elements)
+        unique_elements = np.unique(elements)
+    else:
+        unique_elements = [None]
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+
+    for el_i, el in enumerate(unique_elements):
+        marker = markers[el_i % len(markers)] if elements is not None else "o"
+        el_mask = (elements == el) if elements is not None else np.ones(n_modes, dtype=bool)
+
+        if soft_mode_mask is not None:
+            soft_mode_mask = np.asarray(soft_mode_mask)
+            m_other, m_soft = el_mask & ~soft_mode_mask, el_mask & soft_mode_mask
+            ax.scatter(eigenvalues[m_other], participation_ratio[m_other],
+                       s=12, c="steelblue", alpha=0.6, marker=marker)
+            ax.scatter(eigenvalues[m_soft], participation_ratio[m_soft],
+                       s=24, c="crimson", alpha=0.85, marker=marker)
+        else:
+            ax.scatter(eigenvalues[el_mask], participation_ratio[el_mask],
+                       s=12, c="steelblue", alpha=0.7, marker=marker)
+
+    if soft_mode_mask is not None:
+        color_handles = [
+            plt.Line2D([0], [0], marker="o", color="steelblue", linestyle="",
+                       markersize=6, label="other modes"),
+            plt.Line2D([0], [0], marker="o", color="crimson", linestyle="",
+                       markersize=7, label="soft/localized modes"),
+        ]
+        color_legend = ax.legend(handles=color_handles, loc="upper right", title="mode type")
+        ax.add_artist(color_legend)
+
+    if elements is not None:
+        shape_handles = [
+            plt.Line2D([0], [0], marker=markers[i % len(markers)], color="gray",
+                       linestyle="", markersize=7, label=el)
+            for i, el in enumerate(unique_elements)
+        ]
+        ax.legend(handles=shape_handles, loc="lower right", title="dominant element")
+
+    ax.set_xlabel(r"Mode eigenvalue $\langle a_n^2\rangle$ (Å$^2$) — larger = softer")
+    ax.set_ylabel("Participation ratio")
+    ax.set_title("Participation Ratio vs. Mode Softness")
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+
+def plot_softness_map(atoms_ref, softness, atom_indices=None,
+                       save_path="soft_modes/softness_map.png", title="Soft-Spot Map"):
+    """
+    Flat 2D (x-y) PROJECTION of atoms colored by softness score — same
+    layout as plot_d2min_map. This is a projection, not a true 3D
+    view: two atoms at very different z can land on top of each other
+    here. Fine for a single z-slice (where all plotted atoms already
+    share roughly the same z by construction) or a quick 2D overview;
+    for the actual 3D analysis (soft_modes.soft_mode_analysis_3d()),
+    use plot_softness_map_3d() instead so z isn't thrown away.
+
+    `atom_indices` restricts the plotted subset (e.g. a single
+    z-slice's atoms); `softness` may be full-length (indexed by real
+    atom index, NaNs elsewhere) or already restricted to atom_indices.
+    `title` lets you label which slice/subset this is.
+    """
+
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "softness_map.png")
+
+    softness = np.asarray(softness)
+    if atom_indices is not None and len(softness) == len(atoms_ref):
+        pos = atoms_ref.positions[atom_indices]
+        vals = softness[atom_indices]
+    elif atom_indices is not None:
+        pos = atoms_ref.positions[atom_indices]
+        vals = softness
+    else:
+        pos = atoms_ref.positions
+        vals = softness
+
+    plt.figure(figsize=(7, 6))
+    sc = plt.scatter(pos[:, 0], pos[:, 1], c=vals, cmap="viridis", s=14,
+                      vmax=np.nanpercentile(vals, 99))
+    plt.colorbar(sc).set_label("Softness score (a.u.)", fontsize=9)
+    plt.xlabel("x (Å)")
+    plt.ylabel("y (Å)")
+    plt.title(title)
+    plt.gca().set_aspect("equal")
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+def plot_mode_amplitude_distribution(a_n, gmm_fit=None, label="mode amplitude",
+                                      save_path="soft_modes/amplitude_distribution.png"):
+    """
+    Histogram of P(a_n) for a single mode/cage-coordinate amplitude
+    time series, with the fitted single- and two-Gaussian models
+    overlaid — the plot behind "a typical [oscillator] distribution
+    would have just one peak ... a TLS one would have two." `gmm_fit`
+    is the per-item dict from tls_detection.bimodality_test_batch()
+    (needs "means", "sigmas", "weights" for the 2-component curve).
+    """
+
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "amplitude_distribution.png")
+
+    a_n = np.asarray(a_n).ravel()
+    plt.figure(figsize=(7, 5))
+    plt.hist(a_n, bins=60, density=True, color="steelblue", alpha=0.6, label="P(a_n)")
+    x = np.linspace(a_n.min(), a_n.max(), 400)
+
+    mu, sigma = a_n.mean(), a_n.std()
+    plt.plot(x, np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi)),
+              "k--", label="single Gaussian fit")
+
+    if gmm_fit is not None:
+        means = np.ravel(gmm_fit["means"])
+        sigmas = np.ravel(gmm_fit["sigmas"])
+        weights = np.ravel(gmm_fit["weights"])
+        mix = sum(w * np.exp(-0.5 * ((x - m) / s) ** 2) / (s * np.sqrt(2 * np.pi))
+                   for m, s, w in zip(means, sigmas, weights))
+        plt.plot(x, mix, "crimson", linewidth=2, label="2-component (TLS) fit")
+
+    plt.xlabel(f"{label} (Å)")
+    plt.ylabel("Probability density")
+    plt.title(f"Amplitude Distribution — {label}")
+    plt.legend()
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+
+def plot_roc_curve(fpr, tpr, auc, title="Predicting D²_min rearrangement",
+                    save_path="soft_modes/roc_curve.png"):
+    """
+    ROC curve for a score (softness or TLS-ness) predicting a later
+    D^2_min rearrangement event — see
+    analysis.soft_spot_tls_dmin_comparison.predict_d2min_from_score().
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "roc_curve.png")
+
+    plt.figure(figsize=(6, 6))
+    plt.plot(fpr, tpr, color="crimson", linewidth=2, label=f"AUC = {auc:.3f}")
+    plt.plot([0, 1], [0, 1], "k--", linewidth=1, label="chance")
+    plt.xlabel("False positive rate")
+    plt.ylabel("True positive rate")
+    plt.title(title)
+    plt.legend()
+    plt.gca().set_aspect("equal")
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+
+def plot_soft_tls_scatter(softness, tls_score, save_path="soft_modes/soft_vs_tls.png"):
+    """
+    Two-panel visualization of
+    analysis.soft_spot_tls_dmin_comparison.compare_soft_tls().
+
+    tls_score is typically sparse/near-binary in this pipeline (zero
+    for the large majority of atoms neither TLS method flagged, a
+    small continuous participation-weighted value for the rest) --
+    a bare scatter plot of that against softness tends to collapse
+    into one dense horizontal line at y=0 with a scattering of points
+    above it, which is hard to read at a glance. So:
+
+      Left  : the scatter itself (with a little y-jitter purely for
+              visibility — the jitter carries no information, don't
+              read anything into its vertical spread at a given
+              tls_score value).
+      Right : the SAME comparison redrawn as two box plots -- softness
+              scores for atoms flagged as TLS (tls_score > 0) vs.
+              atoms that weren't. This is usually the more directly
+              readable version: if soft spots and TLS genuinely
+              overlap, the "TLS flagged" box should sit visibly higher
+              than the "not TLS" box.
+    """
+
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "soft_vs_tls.png")
+
+    softness = np.asarray(softness, dtype=float)
+    tls_score = np.asarray(tls_score, dtype=float)
+    rng = np.random.default_rng(0)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    jitter_scale = 0.03 * (np.nanmax(tls_score) - np.nanmin(tls_score) + 1e-9)
+    jitter = rng.normal(0, jitter_scale, size=len(tls_score))
+    axes[0].scatter(softness, tls_score + jitter, s=10, c="steelblue", alpha=0.4)
+    axes[0].set_xlabel("Softness score (a.u.)")
+    axes[0].set_ylabel("TLS score (+ small y-jitter, for visibility only)")
+    axes[0].set_title("Per-atom scatter")
+
+    flagged = tls_score > 0
+    groups = [softness[~flagged], softness[flagged]]
+    axes[1].boxplot(groups, showmeans=True)
+    axes[1].set_xticks([1, 2])
+    axes[1].set_xticklabels([f"not TLS\n(n={int((~flagged).sum())})",
+                              f"TLS flagged\n(n={int(flagged.sum())})"])
+    axes[1].set_ylabel("Softness score (a.u.)")
+    axes[1].set_title("Softness, split by TLS status")
+
+    fig.suptitle("Soft-Spot Score vs. TLS Score")
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+def plot_distribution_by_element(series, elements, xlabel, title, bins=40, save_path=None):
+    """
+    Average distribution of a per-atom field, per element, pooled over the
+    whole trajectory (every atom at every frame), plus the combined
+    (all-elements) distribution.
+
+    series : (T, N) array (NaN = "not enough data yet", ignored)
+    elements : (N,) array of element symbols
+    """
+    from analysis.element_statistics import pool_series_by_element
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "distribution_by_element.png")
+
+    pooled, combined = pool_series_by_element(series, elements)
+    xmin, xmax = np.min(combined), np.percentile(combined, 99.5)
+    edges = np.linspace(xmin, xmax, bins + 1)
+    colors = plt.cm.tab10(np.arange(len(pooled)))
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for color, (el, vals) in zip(colors, pooled.items()):
+        ax.hist(vals, bins=edges, density=True, alpha=0.45, color=color,
+                label=f"{el} (n={len(vals)})")
+    ax.hist(combined, bins=edges, density=True, histtype="step", color="black",
+            linewidth=2, label=f"Combined (n={len(combined)})")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Probability density")
+    ax.set_title(title)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {save_path}")

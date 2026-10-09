@@ -150,3 +150,33 @@ OUTER_RADIUS  = None  # px
 CENTER_VAL    = None
 LOG_SCALE_VAL = True
 NORMALIZE_VAL = False
+
+
+
+# ------------------------------------------------------------
+# Soft-mode / TLS analysis
+#   (analysis/soft_modes.py, analysis/tls_detection.py,
+#    analysis/soft_spot_tls_dmin_comparison.py)
+# ------------------------------------------------------------
+
+N_Z_SLICES       = 10     # equally spaced z-slabs for the 2D (CAVIAR-style) analysis
+N_SOFT_MODES     = 20     # how many of the softest modes feed the per-atom softness score
+SOFT_MODE_PR_MAX = None   # participation-ratio cutoff for "quasi-localized" -- None means
+                           # no filtering (all n_soft_modes count toward softness). With only
+                           # ~100 frames available (trj.zr50cu50_6750_vib), the top whole-
+                           # system modes run PR ~0.15-0.6 (fairly delocalized -- with this
+                           # few frames vs. 3*6750 DOF, the SVD can only resolve large-scale,
+                           # multi-atom motion reliably, not single-atom localization; see
+                           # module docstring in analysis/soft_modes.py). Set a cutoff (e.g.
+                           # 0.2-0.3) once you've looked at plot_participation_spectrum() for
+                           # your own run, or restrict atom_indices to a small local
+                           # neighborhood instead (matching the notebook's Part 2 approach)
+                           # for cleaner localization.
+
+TLS_DELTA_BIC_THRESHOLD  = 6.0    # Kass & Raftery "strong evidence" rule of thumb
+TLS_SEPARATION_THRESHOLD = 1.5    # well separation, in units of mean in-well sigma
+TLS_MIN_WEIGHT_FRACTION  = 0.15   # smaller cluster must hold >= this fraction of frames
+TLS_MIN_SWITCHES         = 2      # >=1 full A->B->A round trip (not a 1-way D^2_min-like event)
+
+D2MIN_QUANTILE_THRESHOLD = 0.9    # "rearranged" = D^2_min above this quantile of its distribution
+D2MIN_TOP_FRACTION       = 0.1    # top X% by score, for enrichment comparisons

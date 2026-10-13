@@ -629,9 +629,9 @@ def _draw_distribution_panel(ax, frame_vals, elements, unique_elements, colors,
 
 
 def _distribution_limits(series, pooled_combined):
-    xmin = float(np.min(pooled_combined))
-    xmax = float(np.percentile(pooled_combined, 99.5))
-    return xmin, xmax
+    """x-range of the distribution panels: identical to plot_distribution_by_element
+    (minimum to the 99.5th percentile of the pooled whole-trajectory values)."""
+    return float(np.min(pooled_combined)), float(np.percentile(pooled_combined, 99.5))
 
 
 def animate_distribution_by_element(series, frame_indices, elements, xlabel,
@@ -670,13 +670,13 @@ def animate_distribution_by_element(series, frame_indices, elements, xlabel,
 
 def animate_d2min_softness_side_by_side(
     trajectory, cutoff=CUTOFF_DICT, t0=0, frame_step=1, mass_weight=True,
-    n_soft_modes=20, pr_max=None, min_frames=5, elements=None,
+    n_soft_modes=None, pr_max=None, elements=None,
     d2min_series=None, softness_series=None, bins=40, save_path=None,
     elev=20, azim=45, show_distributions=True, fps=12,
 ):
     """
     Side-by-side animation. Left: D^2_min, right: softness (both relative
-    to frame t0), 3D atoms coloured by the field.
+    to the MEAN STRUCTURE of the trajectory), 3D atoms coloured by the field.
 
     show_distributions=True : 2x2 layout, distribution panels (per element,
         combined, stationary whole-trajectory averages) above the 3D maps.
@@ -693,14 +693,19 @@ def animate_d2min_softness_side_by_side(
             else "d2min_softness_maps_side_by_side_3d.mp4")
 
     if d2min_series is None:
+        from utils import unwrap_positions, compute_displacements
+        _pos = np.array([a.positions for a in trajectory])
+        _box = np.array([a.cell.array.diagonal() for a in trajectory])
+        _, mean_positions = compute_displacements(unwrap_positions(_pos, _box))
         d2min_series, frame_indices = d2min_trajectory(
-            trajectory, t0=t0, frame_step=frame_step, cutoff=cutoff)
+            trajectory, t0=t0, frame_step=frame_step, cutoff=cutoff,
+            reference_positions=mean_positions)
     else:
         frame_indices = np.arange(t0, t0 + len(d2min_series) * frame_step, frame_step)
     if softness_series is None:
         softness_series, _, _ = softness_trajectory(
             trajectory, t0=t0, frame_step=frame_step, mass_weight=mass_weight,
-            n_soft_modes=n_soft_modes, pr_max=pr_max, min_frames=min_frames)
+            n_soft_modes=n_soft_modes, pr_max=pr_max)
 
     n_atoms = len(trajectory[0])
     if elements is None:
@@ -711,64 +716,58 @@ def animate_d2min_softness_side_by_side(
 
     fields = [("D\u00b2_min (\u00c5\u00b2)", d2min_series, cm.inferno),
               ("Softness score (a.u.)", softness_series, cm.viridis)]
-    pos = trajectory[t0].positions
     cell = trajectory[t0].cell.lengths()
 
+    # The two 3D maps are built IDENTICALLY in both modes (same figure size,
+    # layout, colour scale, marker size, titles, colourbar). With distributions
+    # the figure is two sub-figures: distributions on top, and below them
+    # exactly the 16 x 7 in two-map figure of the maps-only animation.
     if show_distributions:
-        fig = plt.figure(figsize=(14, 11))
-        ax_dist = [fig.add_subplot(2, 2, 1), fig.add_subplot(2, 2, 2)]
-        ax_3d = [fig.add_subplot(2, 2, 3, projection="3d"),
-                 fig.add_subplot(2, 2, 4, projection="3d")]
+        fig = plt.figure(figsize=(16, 12))
+        sub_top, sub_bottom = fig.subfigures(2, 1, height_ratios=[5, 7])
+        ax_dist = list(sub_top.subplots(1, 2))
     else:
-        fig = plt.figure(figsize=(16, 7))     # two 8 x 7 panels, as in animate_d2min_3d
+        fig = plt.figure(figsize=(16, 7))
+        sub_bottom = fig
         ax_dist = [None, None]
-        ax_3d = [fig.add_subplot(1, 2, 1, projection="3d"),
-                 fig.add_subplot(1, 2, 2, projection="3d")]
+    ax_3d = [sub_bottom.add_subplot(1, 2, 1, projection="3d"),
+             sub_bottom.add_subplot(1, 2, 2, projection="3d")]
 
     info = []
     for (label, series, cmap), a3 in zip(fields, ax_3d):
         pooled, combined = pool_series_by_element(series, elements)
         xmin, xmax = _distribution_limits(series, combined)
-        if show_distributions:
-            norm = mcolors.Normalize(vmin=xmin, vmax=xmax)
-        else:   # same colour scale as animate_d2min_3d
-            norm = mcolors.Normalize(vmin=0, vmax=np.nanpercentile(series[-1], 99))
+        norm = mcolors.Normalize(vmin=0, vmax=np.nanpercentile(series[-1], 99))
         sm = cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
-        cb = fig.colorbar(sm, ax=a3, shrink=0.6 if show_distributions else 0.7, pad=0.1)
+        cb = sub_bottom.colorbar(sm, ax=a3, shrink=0.7, pad=0.1)
         cb.set_label(label, fontsize=9)
         info.append((pooled, xmin, xmax, norm, cmap))
 
     def update(i):
         for k, ((label, series, cmap), ad, a3) in enumerate(zip(fields, ax_dist, ax_3d)):
             pooled, xmin, xmax, norm, cm_ = info[k]
+            name = label.split(" (")[0]
             if ad is not None:
                 ad.clear()
                 _draw_distribution_panel(
                     ad, series[i], elements, unique_elements, colors, xmin, xmax, bins,
-                    label, f"{label.split(' (')[0]} distribution", average_pooled=pooled)
+                    label, f"{name} distribution (Frame {frame_indices[i]})",
+                    average_pooled=pooled)
             a3.clear()
             vals = np.asarray(series[i], dtype=float)
             ok = np.isfinite(vals)
-            if show_distributions:
-                a3.scatter(pos[ok, 0], pos[ok, 1], pos[ok, 2], c=vals[ok], cmap=cm_,
-                           norm=norm, s=3, alpha=0.8)
-                a3.set_title(label.split(" (")[0])
-                a3.set_xlabel("x (\u00c5)"); a3.set_ylabel("y (\u00c5)"); a3.set_zlabel("z (\u00c5)")
-            else:   # same look as animate_d2min_3d: atoms at their CURRENT positions
-                cur = trajectory[frame_indices[i]].positions
-                a3.scatter(cur[ok, 0], cur[ok, 1], cur[ok, 2], c=vals[ok], cmap=cm_,
-                           norm=norm, s=10, alpha=0.8)
-                a3.set_title(f"{label.split(' (')[0]} relative to frame {t0} (Frame {frame_indices[i]})")
-                a3.set_xlabel("x (A)"); a3.set_ylabel("y (A)"); a3.set_zlabel("z (A)")
+            cur = trajectory[frame_indices[i]].positions     # atoms at their CURRENT positions
+            a3.scatter(cur[ok, 0], cur[ok, 1], cur[ok, 2], c=vals[ok], cmap=cm_,
+                       norm=norm, s=10, alpha=0.8)
+            a3.set_title(f"{name} relative to mean structure (Frame {frame_indices[i]})")
+            a3.set_xlabel("x (A)"); a3.set_ylabel("y (A)"); a3.set_zlabel("z (A)")
             a3.set_xlim(0, cell[0]); a3.set_ylim(0, cell[1]); a3.set_zlim(0, cell[2])
             a3.view_init(elev=elev, azim=azim)
-        if show_distributions:
-            fig.suptitle(f"Frame {frame_indices[i]}")
         return []
 
     anim = FuncAnimation(fig, update, frames=len(frame_indices), interval=100, blit=False)
-    anim.save(save_path, writer="ffmpeg", fps=fps, dpi=100 if show_distributions else 150)
+    anim.save(save_path, writer="ffmpeg", fps=fps, dpi=150)
     plt.close(fig)
     print(f"Saved: {save_path}")
 

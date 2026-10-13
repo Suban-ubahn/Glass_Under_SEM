@@ -110,6 +110,25 @@ def score_by_element(score, elements, top_frac=0.1):
     }
 
 
+def element_mode_participation(eigenvectors, elements):
+    """
+    How every mode is populated, atom by atom and element by element.
+
+    Returns
+    -------
+    p : (N, K) per-atom participation  p[i, n] = sum_d e_n[i, d]^2
+        (each column sums to 1)
+    share : dict {element: (K,) array} -- the part of each mode's total
+        participation carried by that element's atoms (sums to 1 over elements)
+    population_fraction : dict {element: float} -- the element's share of the atoms
+    """
+    elements = np.asarray(elements)
+    p = np.sum(eigenvectors ** 2, axis=1)
+    share = {str(el): p[elements == el].sum(axis=0) for el in np.unique(elements)}
+    population_fraction = {str(el): float(np.mean(elements == el)) for el in np.unique(elements)}
+    return p, share, population_fraction
+
+
 def mode_dominant_elements(eigenvectors, elements, mode_mask=None):
     """
     For every mode, decide which element dominates its participation

@@ -19,6 +19,9 @@
 #   detect. The expected thermal D^2_min of atom i, n_i neighbours, is
 #       baseline_i(t) = (n_i - 3) * mean_j 2 C_ij(0) [1 - rho_pair(j)(t)].
 #   excess_i(t) = D^2_min,i(0 -> t) - baseline_i(t).
+#   With the MEAN STRUCTURE as reference (default; D^2_min of frame t vs.
+#   the mean structure) there is no lag: E|delta_ij|^2 = C_ij(0) and
+#       baseline_i = (n_i - 3) * mean_j C_ij(0),   the same for every frame.
 #   Every test is run on the raw field AND on the excess.
 #
 #   Null model.  Soft labels are permuted among atoms with the same
@@ -39,13 +42,19 @@ from ase.neighborlist import neighbor_list
 from utils import unwrap_positions, compute_displacements
 
 
-def thermal_baseline_series(trajectory, i_idx, j_idx, n_neighbors, elements):
-    """(T, N) expected thermal D^2_min(0 -> t) of every atom (see header)."""
+def thermal_baseline_series(trajectory, i_idx, j_idx, n_neighbors, elements, reference="mean"):
+    """(T, N) expected thermal D^2_min of every atom (see header).
+    reference : "mean" (D^2_min vs. the mean structure) or "first" (D^2_min(0 -> t))"""
     T, N = len(trajectory), len(n_neighbors)
     positions = np.array([a.positions for a in trajectory])
     box = np.array([a.cell.array.diagonal() for a in trajectory])
     u, _ = compute_displacements(unwrap_positions(positions, box))
     delta = u[:, j_idx] - u[:, i_idx]                                   # (T, B, 3)
+
+    if reference == "mean":
+        var = (delta ** 2).sum(-1).mean(0)                              # C_ij(0), (B,)
+        per_atom = np.bincount(i_idx, weights=var, minlength=N) / n_neighbors
+        return np.tile((n_neighbors - 3) * per_atom, (T, 1))
 
     C = np.empty((T, len(i_idx)))                                       # C_ij(tau)
     for tau in range(T):
@@ -85,6 +94,13 @@ def _spatial_stat(series_final, mask, i_idx, j_idx, n_atoms):
     return np.nanmean(series_final[near]) - np.nanmean(series_final[far])
 
 
+def _group_means(series_final, mask, i_idx, j_idx, n_atoms, n_groups=5):
+    """mean field of non-soft atoms with k = 0 .. n_groups-1 (last: >=) soft neighbours"""
+    k = np.minimum(np.bincount(i_idx, weights=mask[j_idx], minlength=n_atoms).astype(int), n_groups - 1)
+    return np.array([np.nanmean(series_final[~mask & (k == g)]) if (~mask & (k == g)).any() else np.nan
+                     for g in range(n_groups)])
+
+
 def _temporal_stat(onset, mask, i_idx, j_idx):
     """(mean lag, fraction soft-first with ties dropped) over (soft, non-soft) bonds."""
     sel = mask[i_idx] & ~mask[j_idx] & np.isfinite(onset[i_idx]) & np.isfinite(onset[j_idx])
@@ -94,12 +110,20 @@ def _temporal_stat(onset, mask, i_idx, j_idx):
 
 def soft_source_analysis(trajectory, softness, d2min_series, cutoff,
                          soft_frac=0.1, thr_quantile=0.9, n_hold=3,
-                         n_perm=1000, seed=0):
+                         n_perm=1000, seed=0, reference="mean",
+                         spatial=True, temporal=True, max_group=5):
     """
     Parameters
     ----------
     softness : (N,) per-atom softness score (e.g. soft_mode_analysis_3d()["softness"])
-    d2min_series : (T, N) D^2_min(0 -> t), e.g. from dynamics.flow_units.d2min_trajectory()
+    d2min_series : (T, N) D^2_min per frame, e.g. from dynamics.flow_units.d2min_trajectory()
+    reference : "mean" if d2min_series is measured from the mean structure (default),
+        "first" if it is D^2_min(0 -> t) -- selects the matching thermal baseline
+    spatial, temporal : which of the two tests to run. The TEMPORAL test needs a
+        series that grows from a fixed starting frame (reference="first"): with the
+        mean structure as reference the field is stationary, the "onset" is just
+        the waiting time to the first fluctuation above the threshold, and atoms
+        that vibrate more (soft atoms) trivially cross it earlier.
 
     Returns
     -------
@@ -122,7 +146,7 @@ def soft_source_analysis(trajectory, softness, d2min_series, cutoff,
     soft = softness >= np.quantile(softness, 1 - soft_frac)
     n_soft_nb = np.bincount(i_idx, weights=soft[j_idx], minlength=N).astype(int)
 
-    baseline = thermal_baseline_series(trajectory, i_idx, j_idx, n_nb, elements)
+    baseline = thermal_baseline_series(trajectory, i_idx, j_idx, n_nb, elements, reference)
     excess = d2min_series - baseline
 
     # permuted soft labels, shared by every test below
@@ -145,30 +169,39 @@ def soft_source_analysis(trajectory, softness, d2min_series, cutoff,
     for name, series in (("raw", d2min_series), ("excess", excess)):
         final = series[-1]
 
-        obs = _spatial_stat(final, soft, i_idx, j_idx, N)
-        null = [_spatial_stat(final, m, i_idx, j_idx, N) for m in perm_masks]
-        nm, ns, z = z_and_null(obs, null)
-        by_k = {}
-        for k in range(5):
-            sel = ~soft & ((n_soft_nb == k) if k < 4 else (n_soft_nb >= k))
-            if sel.any():
-                by_k[k] = (int(sel.sum()), float(np.nanmean(final[sel])))
-        spatial = dict(observed=obs, null_mean=nm, null_std=ns, z=z,
-                       p=(np.sum(np.array(null) >= obs) + 1) / (n_perm + 1),
-                       n_near=int((~soft & (n_soft_nb > 0)).sum()),
-                       by_n_soft_neighbours=by_k)
-
-        onset, thr = onset_frames(series, thr_quantile, n_hold)
-        lag, frac, n_bonds = _temporal_stat(onset, soft, i_idx, j_idx)
-        null = np.array([_temporal_stat(onset, m, i_idx, j_idx)[:2] for m in perm_masks])
-        lm, ls, lz = z_and_null(lag, null[:, 0])
-        fm, fs, fz = z_and_null(frac, null[:, 1])
-        temporal = dict(threshold=thr, n_onsets=int(np.isfinite(onset).sum()),
-                        n_bonds=n_bonds, mean_lag=lag, mean_lag_null_mean=lm,
-                        mean_lag_null_std=ls, mean_lag_z=lz,
-                        frac_soft_first=frac, frac_null_mean=fm, frac_null_std=fs,
-                        frac_z=fz)
-        fields[name] = dict(spatial=spatial, temporal=temporal)
+        out = {}
+        if spatial:
+            obs = _spatial_stat(final, soft, i_idx, j_idx, N)
+            null = [_spatial_stat(final, m, i_idx, j_idx, N) for m in perm_masks]
+            nm, ns, z = z_and_null(obs, null)
+            by_k = {}
+            for k in range(max_group + 1):
+                sel = ~soft & ((n_soft_nb == k) if k < max_group else (n_soft_nb >= k))
+                if sel.any():
+                    by_k[k] = (int(sel.sum()), float(np.nanmean(final[sel])))
+            null_groups = np.array([_group_means(final, m, i_idx, j_idx, N, n_groups=max_group + 1)
+                                    for m in perm_masks])
+            spatial = dict(observed=obs, null_mean=nm, null_std=ns, z=z,
+                           null_by_n_soft_neighbours={
+                               g: (float(np.nanmean(null_groups[:, g])), float(np.nanstd(null_groups[:, g])))
+                               for g in range(null_groups.shape[1])},
+                           p=(np.sum(np.array(null) >= obs) + 1) / (n_perm + 1),
+                           n_near=int((~soft & (n_soft_nb > 0)).sum()),
+                           by_n_soft_neighbours=by_k)
+            out["spatial"] = spatial
+        if temporal:
+            onset, thr = onset_frames(series, thr_quantile, n_hold)
+            lag, frac, n_bonds = _temporal_stat(onset, soft, i_idx, j_idx)
+            null = np.array([_temporal_stat(onset, m, i_idx, j_idx)[:2] for m in perm_masks])
+            lm, ls, lz = z_and_null(lag, null[:, 0])
+            fm, fs, fz = z_and_null(frac, null[:, 1])
+            temporal = dict(threshold=thr, n_onsets=int(np.isfinite(onset).sum()),
+                            n_bonds=n_bonds, mean_lag=lag, mean_lag_null_mean=lm,
+                            mean_lag_null_std=ls, mean_lag_z=lz,
+                            frac_soft_first=frac, frac_null_mean=fm, frac_null_std=fs,
+                            frac_z=fz)
+            out["temporal"] = temporal
+        fields[name] = out
 
     return dict(soft_mask=soft, n_soft_neighbours=n_soft_nb,
                 baseline=baseline, excess=excess, fields=fields)

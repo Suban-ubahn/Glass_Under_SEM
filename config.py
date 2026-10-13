@@ -172,6 +172,7 @@ SOFT_MODE_PR_MAX = None   # participation-ratio cutoff for "quasi-localized" -- 
                            # your own run, or restrict atom_indices to a small local
                            # neighborhood instead (matching the notebook's Part 2 approach)
                            # for cleaner localization.
+MAX_SOFT_NB = 5        # last group = "MAX_SOFT_NB or more soft neighbours"
 
 TLS_DELTA_BIC_THRESHOLD  = 6.0    # Kass & Raftery "strong evidence" rule of thumb
 TLS_SEPARATION_THRESHOLD = 1.5    # well separation, in units of mean in-well sigma

@@ -37,15 +37,15 @@ from analysis.element_statistics import (
 from config import (
     TRAJECTORY_FILE, CUTOFF_DICT, N_Z_SLICES, N_SOFT_MODES, SOFT_MODE_PR_MAX,
     TLS_DELTA_BIC_THRESHOLD, TLS_SEPARATION_THRESHOLD, TLS_MIN_WEIGHT_FRACTION,
-    TLS_MIN_SWITCHES, D2MIN_QUANTILE_THRESHOLD, D2MIN_TOP_FRACTION,
+    TLS_MIN_SWITCHES, D2MIN_QUANTILE_THRESHOLD, D2MIN_TOP_FRACTION, MAX_SOFT_NB,
 )
 from data_io.trajectory import load_trajectory
 from dynamics.flow_units import d2min_trajectory
-from utils import get_output_dir
+from utils import get_output_dir, unwrap_positions, compute_displacements
 from visualization.plot import (
-    plot_participation_spectrum, plot_softness_map,
+    plot_participation_spectrum, plot_mode_atom_distribution_by_element, plot_softness_map,
     plot_mode_amplitude_distribution, plot_roc_curve, plot_soft_tls_scatter,
-    plot_distribution_by_element,
+    plot_distribution_by_element, plot_d2min_by_soft_neighbours,
 )
 from visualization.animate import (
     animate_distribution_by_element, animate_d2min_softness_side_by_side,
@@ -75,6 +75,11 @@ if __name__ == "__main__":
         soft_mode_mask=modes_3d["soft_mode_mask"], elements=dominant_elements_3d,
         save_path=os.path.join(OUTPUT_DIR, "participation_spectrum_3d.png"),
     )
+    # with which atoms is each mode populated? one figure per element
+    plot_mode_atom_distribution_by_element(
+        modes_3d["eigenvectors"], elements, soft_mode_mask=modes_3d["soft_mode_mask"],
+        save_dir=OUTPUT_DIR,
+    )
     plot_softness_map(trajectory[0], modes_3d["softness"],
                        save_path=os.path.join(OUTPUT_DIR, "softness_map_3d_flat.png"),
                        title="Soft-Spot Map (3D analysis, x-y projection)")
@@ -96,28 +101,7 @@ if __name__ == "__main__":
     plot_softness_map(trajectory[0], modes_2d["softness_pr_weighted"],
                        save_path=os.path.join(OUTPUT_DIR, "softness_map_2d_overview_pr_weighted.png"),
                        title="Soft-Spot Map (2D per-slice, participation-weighted, all slices combined)")
-    # ... AND, per z-slice: one participation spectrum (with that
-    # slice's own dominant-element coding). The per-slice softness maps
-    # are no longer plotted -- only the combined overview maps above.
-    for s, slc in enumerate(modes_2d["slices"]):
-        if slc is None:
-            print(f"  slice {s}: skipped (too few atoms)")
-            continue
-        z0, z1 = slc["z_range"]
-        print(f"  slice {s} (z={z0:.1f}-{z1:.1f} A, {len(slc['atom_indices'])} atoms): "
-              f"softest eigenvalue={slc['eigenvalues'][0]:.4f} A^2")
-
-        slice_elements = elements[slc["atom_indices"]]
-        dominant_elements_slice, dominant_tally_slice = mode_dominant_elements(
-            slc["eigenvectors"], slice_elements, mode_mask=slc["soft_mode_mask"],
-        )
-        print(f"    dominant element of this slice's soft/localized modes: {dominant_tally_slice}")
-        plot_participation_spectrum(
-            slc["eigenvalues"], slc["participation"],
-            soft_mode_mask=slc["soft_mode_mask"], elements=dominant_elements_slice,
-            save_path=os.path.join(OUTPUT_DIR, f"participation_spectrum_2d_slice_{s:02d}.png"),
-        )
-
+    
     # --- 3a. TLS detection: Method A (direct/structural), 3D ---
     # Only test the top 5% softest atoms from step 1 -- TLS are
     # expected to be rare, and running the bistability fit on all
@@ -218,18 +202,26 @@ if __name__ == "__main__":
     print("\n=== Element statistics ===")
 
     # softness_series / d2min_series are each atom's field value at every
-    # frame of a growing window relative to frame 0 (see
+    # frame, measured from the mean structure (see
     # analysis.soft_modes.softness_trajectory() /
     # dynamics.flow_units.d2min_trajectory()) -- computed once here and
     # reused for the persistence numbers AND the distribution plots/
     # animations below, rather than recomputed per use.
     print("\nComputing per-frame softness and D^2_min trajectories "
           "(used for persistence + distribution plots below)...")
+    # Reference for both: the MEAN STRUCTURE of the whole trajectory (unwrapped,
+    # time-average position per atom), fixed for every frame -- so neither
+    # field grows with the frame number. Softness uses ALL modes of each
+    # window (no n_soft_modes cap, no minimum number of frames).
+    _positions = np.array([a.positions for a in trajectory])
+    _box = np.array([a.cell.array.diagonal() for a in trajectory])
+    _, mean_positions = compute_displacements(unwrap_positions(_positions, _box))
     d2min_series, frame_indices_traj = d2min_trajectory(
         trajectory, t0=0, frame_step=1, cutoff=CUTOFF_DICT,
+        reference_positions=mean_positions,
     )
     softness_series, softness_pr_series, _ = softness_trajectory(
-        trajectory, t0=0, frame_step=1, n_soft_modes=N_SOFT_MODES, pr_max=SOFT_MODE_PR_MAX,
+        trajectory, t0=0, frame_step=1, pr_max=SOFT_MODE_PR_MAX,
     )
 
     # -- softness by element (plain + participation-weighted) --
@@ -300,31 +292,37 @@ if __name__ == "__main__":
     plot_distribution_by_element(
         softness_series, elements, xlabel="Softness score (a.u.)",
         title="Average Softness Distribution by Element",
+        bins=100,
         save_path=os.path.join(OUTPUT_DIR, "distribution_softness_by_element_average.png"),
     )
     plot_distribution_by_element(
         softness_pr_series, elements, xlabel="PR-weighted softness score (a.u.)",
         title="Average PR-Weighted Softness Distribution by Element",
+        bins=100,
         save_path=os.path.join(OUTPUT_DIR, "distribution_softness_pr_weighted_by_element_average.png"),
     )
     plot_distribution_by_element(
         d2min_series, elements, xlabel="D\u00b2_min (\u00c5\u00b2)",
         title="Average D\u00b2_min Distribution by Element",
+        bins=100,   
         save_path=os.path.join(OUTPUT_DIR, "distribution_d2min_by_element_average.png"),
     )
     animate_distribution_by_element(
         softness_series, frame_indices_traj, elements, xlabel="Softness score (a.u.)",
         title_prefix="Softness distribution",
+        bins=100,
         save_path=os.path.join(OUTPUT_DIR, "distribution_softness_by_element.mp4"),
     )
     animate_distribution_by_element(
         softness_pr_series, frame_indices_traj, elements, xlabel="PR-weighted softness score (a.u.)",
         title_prefix="PR-weighted softness distribution",
+        bins=100,
         save_path=os.path.join(OUTPUT_DIR, "distribution_softness_pr_weighted_by_element.mp4"),
     )
     animate_distribution_by_element(
         d2min_series, frame_indices_traj, elements, xlabel="D\u00b2_min (\u00c5\u00b2)",
         title_prefix="D\u00b2_min distribution",
+        bins=100,
         save_path=os.path.join(OUTPUT_DIR, "distribution_d2min_by_element.mp4"),
     )
 
@@ -349,34 +347,56 @@ if __name__ == "__main__":
 
 
     # --- 6. Are soft atoms "sources" of plastic activity? ---
-    # WHERE: is D^2_min elevated next to soft atoms? WHEN: do soft atoms
-    # cross a D^2_min threshold before their neighbours? Both are asked of
-    # the raw D^2_min AND of D^2_min minus its per-frame thermal baseline
-    # (soft atoms vibrate more, which alone inflates their surroundings),
-    # against a null with soft labels permuted within (element, CN) groups.
+    # WHERE: is D^2_min elevated next to soft atoms? (final frame, D^2_min
+    #   measured from the mean structure -- the series computed above)
+    # WHEN: do soft atoms cross a D^2_min threshold before their neighbours?
+    #   This needs a field that GROWS from a fixed starting frame, so it uses
+    #   D^2_min(0 -> t); with the stationary mean-structure field an "onset"
+    #   would only be the waiting time to the first fluctuation.
+    # Both are asked of the raw D^2_min AND of D^2_min minus its thermal
+    # baseline (soft atoms vibrate more, which alone inflates their
+    # surroundings), against a null with soft labels permuted within
+    # (element, CN) groups.
     print("\n=== Are soft atoms sources of plastic activity? ===")
-    print("  (raw = D^2_min; excess = D^2_min minus its per-frame thermal baseline)")
-    source = soft_source_analysis(
+    print("  (raw = D^2_min; excess = D^2_min minus its thermal baseline)")
+    labels = {"raw": "raw", "excess": "excess"}
+
+    where = soft_source_analysis(
         trajectory, modes_3d["softness"], d2min_series, cutoff=CUTOFF_DICT,
-        soft_frac=D2MIN_TOP_FRACTION,
+        soft_frac=D2MIN_TOP_FRACTION, reference="mean", temporal=False,
+        max_group=MAX_SOFT_NB,
     )
-    labels = {"raw": "raw", "excess": "excess"}   # excess = D2_min - thermal baseline
     print("\n-- WHERE: non-soft atoms next to a soft atom minus those that are not "
           "(final frame, A^2) --")
     print_element_table({
         labels[k]: {"observed": f["spatial"]["observed"], "null": f["spatial"]["null_mean"],
                     "null_std": f["spatial"]["null_std"], "z": f["spatial"]["z"]}
-        for k, f in source["fields"].items()
+        for k, f in where["fields"].items()
     }, row_label="field", col_width=12)
     print("\n-- D^2_min of non-soft atoms vs. number of soft neighbours --")
-    ks = sorted(source["fields"]["raw"]["spatial"]["by_n_soft_neighbours"])
+    by_k_raw = where["fields"]["raw"]["spatial"]["by_n_soft_neighbours"]
+    by_k_exc = where["fields"]["excess"]["spatial"]["by_n_soft_neighbours"]
     print_element_table({
         f"{k}{'+' if k == 4 else ''} soft nb": {
-            "n_atoms": source["fields"]["raw"]["spatial"]["by_n_soft_neighbours"][k][0],
-            "raw": source["fields"]["raw"]["spatial"]["by_n_soft_neighbours"][k][1],
-            "excess": source["fields"]["excess"]["spatial"]["by_n_soft_neighbours"][k][1],
-        } for k in ks
+            "n_atoms": by_k_raw[k][0], "raw": by_k_raw[k][1], "excess": by_k_exc[k][1],
+        } for k in sorted(by_k_raw)
     }, row_label="group", col_width=14)
+    plot_d2min_by_soft_neighbours(
+        where["n_soft_neighbours"], where["soft_mask"],
+        values={"raw D\u00b2_min": np.asarray(d2min_series)[-1],
+                "excess (D\u00b2_min - thermal baseline)": where["excess"][-1]},
+        null={"raw D\u00b2_min": where["fields"]["raw"]["spatial"]["null_by_n_soft_neighbours"],
+              "excess (D\u00b2_min - thermal baseline)":
+                  where["fields"]["excess"]["spatial"]["null_by_n_soft_neighbours"]},
+        save_path=os.path.join(OUTPUT_DIR, "d2min_by_soft_neighbours.png"),
+    )
+
+    print("\nComputing D^2_min(0 -> t) for the temporal test...")
+    d2min_from_first, _ = d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF_DICT)
+    when = soft_source_analysis(
+        trajectory, modes_3d["softness"], d2min_from_first, cutoff=CUTOFF_DICT,
+        soft_frac=D2MIN_TOP_FRACTION, reference="first", spatial=False,
+    )
     print("\n-- WHEN: bond (soft atom, non-soft neighbour), lag = onset_neighbour - "
           "onset_soft (frames; > 0: soft atom first) --")
     print_element_table({
@@ -384,7 +404,7 @@ if __name__ == "__main__":
                     "null": f["temporal"]["mean_lag_null_mean"], "z": f["temporal"]["mean_lag_z"],
                     "soft_first": f["temporal"]["frac_soft_first"],
                     "null_frac": f["temporal"]["frac_null_mean"], "z_frac": f["temporal"]["frac_z"]}
-        for k, f in source["fields"].items()
+        for k, f in when["fields"].items()
     }, row_label="field", col_width=12)
 
     print("\nDone.")

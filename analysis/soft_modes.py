@@ -504,71 +504,65 @@ def soft_mode_analysis_2d_slices(trajectory, n_slices=10, mass_weight=True,
 # ------------------------------------------------------------
 
 def softness_trajectory(trajectory, t0=0, frame_step=1, mass_weight=True,
-                         n_soft_modes=20, pr_max=None, min_frames=5,
-                         n_modes=200, atom_indices=None):
+                         n_soft_modes=None, pr_max=None, n_modes=None,
+                         atom_indices=None):
     """
     Softness-score analogue of dynamics.flow_units.d2min_trajectory().
-    Computes a per-atom softness field at every frame_indices[i] = t,
-    from a GROWING window of frames [t0, t] (inclusive), with frame t0
-    as the explicit displacement reference (u(s) = r(s) - r(t0)) --
-    matching d2min_trajectory's convention of comparing everything
-    against one fixed reference frame, via soft_mode_analysis_3d's
-    `reference_frame` option, rather than soft_mode_analysis_3d's own
-    default of centering on the window's time-mean position.
+    Computes a per-atom softness field at every frame_indices[i] = t from
+    the window of frames [t0, t] (inclusive).
 
-    IMPORTANT caveat this convention brings with it (see
-    soft_mode_analysis_3d's reference_frame docstring): because this
-    uses frame t0 rather than each window's own mean, and the window
-    keeps growing, this number mixes genuine thermal vibration with
-    whatever systematic drift/relaxation has accumulated since t0 --
-    the same thing D^2_min itself measures. That's the point here (a
-    frame-for-frame comparable animation), but don't read a softness
-    score computed this way as the "vibrational amplitude around
-    equilibrium" quantity from soft_mode_analysis_3d's own default
-    (mean-referenced) mode -- those two numbers answer different
-    questions, even though they come from the same underlying code.
+    Reference: the MEAN STRUCTURE of the whole trajectory (unwrapped,
+    time-average position per atom, see utils.compute_displacements()),
+    the same for every window -- u(s) = r(s) - <r>. Because the reference
+    does not depend on t, the scale of the softness does not grow with
+    the window: a window is just a (less or more noisy) average of the
+    per-frame squared displacements from the mean structure. A window of
+    a single frame is enough (one displacement vector = one mode).
 
     Parameters
     ----------
     t0, frame_step : see d2min_trajectory() -- identical meaning.
-    min_frames : int -- windows with fewer than this many frames
-        (including t0 itself) produce NaN softness for every atom:
-        genuinely not enough data yet for any covariance estimate,
-        the softness equivalent of D^2_min being exactly zero at t0
-        itself (nothing to compare against yet, just for a different
-        reason -- D^2_min needs two frames minimum, softness needs
-        several for a non-degenerate covariance).
-    n_modes, n_soft_modes, pr_max, mass_weight, atom_indices : passed
-        straight through to soft_mode_analysis_3d() at every window.
+    n_soft_modes : int or None -- number of softest modes summed per
+        window; None (default) uses ALL modes of the window.
+    n_modes, pr_max, mass_weight, atom_indices : as in soft_mode_analysis_3d().
 
     Returns
     -------
     softness_series : list of (N,) arrays, one per frame_indices[i]
-    softness_pr_weighted_series : list of (N,) arrays, same shape --
-        the participation-weighted variant (see atom_softness_scores()'s
-        pr_weight option), at every window the same way.
+    softness_pr_weighted_series : same, participation-weighted softness
     frame_indices : list of int
     """
+    if atom_indices is not None:
+        positions = np.array([a.positions[atom_indices] for a in trajectory])
+    else:
+        positions = np.array([a.positions for a in trajectory])
+    box = np.array([a.cell.array.diagonal() for a in trajectory])
+    u_all, _ = compute_displacements(unwrap_positions(positions, box))   # mean structure
+
+    masses = None
+    if mass_weight:
+        masses = trajectory[0].get_masses()
+        if atom_indices is not None:
+            masses = masses[atom_indices]
+
     frame_indices = list(range(t0, len(trajectory), frame_step))
-    n_atoms = len(trajectory[0]) if atom_indices is None else len(atom_indices)
-
-    softness_series = []
-    softness_pr_weighted_series = []
+    softness_series, softness_pr_series = [], []
     for t in frame_indices:
-        window = trajectory[t0:t + 1]
-        if len(window) < min_frames:
-            softness_series.append(np.full(n_atoms, np.nan))
-            softness_pr_weighted_series.append(np.full(n_atoms, np.nan))
-            continue
-        result = soft_mode_analysis_3d(
-            window, atom_indices=atom_indices, mass_weight=mass_weight,
-            n_modes=n_modes, n_soft_modes=n_soft_modes, pr_max=pr_max,
-            reference_frame=0,   # frame 0 of the WINDOW == trajectory[t0]
+        result = modes_from_displacements(u_all[t0:t + 1], masses=masses, n_modes=n_modes)
+        K = len(result["eigenvalues"])
+        k_soft = K if n_soft_modes is None else n_soft_modes
+        softness, _ = atom_softness_scores(
+            result["eigenvalues"], result["eigenvectors"],
+            n_soft_modes=k_soft, pr_max=pr_max,
         )
-        softness_series.append(result["softness"])
-        softness_pr_weighted_series.append(result["softness_pr_weighted"])
+        softness_pr, _ = atom_softness_scores(
+            result["eigenvalues"], result["eigenvectors"],
+            n_soft_modes=k_soft, pr_max=pr_max, pr_weight=True,
+        )
+        softness_series.append(softness)
+        softness_pr_series.append(softness_pr)
 
-    return softness_series, softness_pr_weighted_series, frame_indices
+    return softness_series, softness_pr_series, frame_indices
 
 
 if __name__ == "__main__":

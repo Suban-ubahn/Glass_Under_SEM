@@ -661,81 +661,155 @@ def plot_d2min_hole_distance(stats, save_path=None, smooth=False, smooth_window=
 # =============================================================
 
 def plot_participation_spectrum(eigenvalues, participation_ratio,
-                                 soft_mode_mask=None, elements=None, save_path=None):
+                                soft_mode_mask=None, elements=None, save_path=None,
+                                all_elements=None, element_offset_pt=7.0):
     """
-    Participation ratio vs. mode softness (eigenvalue) — the standard
-    diagnostic in the soft-spot literature (Widmer-Cooper & Harrowell
-    2006; Manning & Liu 2011): quasi-localized soft modes appear as
-    low-PR points among the softest (largest-eigenvalue) modes,
-    distinct from the high-PR extended/acoustic branch.
-    `soft_mode_mask` (bool array, optional) highlights the modes
-    actually used for the softness score / fed to
-    tls_detection.detect_tls_amplitude().
+    Participation ratio vs. mode eigenvalue.
 
-    `elements` (array of element symbols, one per mode, optional —
-    e.g. from analysis.element_statistics.mode_dominant_elements())
-    additionally marks each mode's DOMINANT element using marker
-    SHAPE. Color stays reserved for soft_mode_mask: these are two
-    independent categorical splits ("is this mode soft/localized" and
-    "which element dominates it"), so they get two separate visual
-    channels (and two separate legends) rather than fighting over one.
+    colour  : soft_mode_mask -- soft/localized modes (red) vs. other modes (blue)
+    marker  : element that dominates the mode (`elements`, a (K,) array of symbols);
+              two separate legends, one for colour and one for marker shape.
+
+    Every element stays visible, for any number of elements: modes with
+    (almost) the same eigenvalue and participation ratio -- e.g. the many
+    noise-floor modes -- sit exactly on top of each other, so one element would
+    hide the others. Therefore
+      * each element is shifted sideways by `element_offset_pt` points ON THE
+        SCREEN (drawing offset only, the data values are unchanged), turning a
+        stack into one column per element;
+      * the most numerous element is drawn first in the original small style,
+        every other (rarer) element larger, opaque, black-edged and on top;
+      * the legend shows the number of modes per element.
+    all_elements : optional list of every element in the simulation. Gives each
+        element the same marker in every plot (e.g. the 3D plot and the
+        per-slice plots) and lists elements that dominate no mode (n=0).
     """
+    from matplotlib.transforms import ScaledTranslation
     if save_path is None:
         save_path = os.path.join(OUTPUT_DIR, "participation_spectrum.png")
     eigenvalues = np.asarray(eigenvalues)
     participation_ratio = np.asarray(participation_ratio)
     n_modes = len(eigenvalues)
+    if len(participation_ratio) != n_modes:
+        raise ValueError("eigenvalues and participation_ratio must have the same length")
+    if soft_mode_mask is not None:
+        soft_mode_mask = np.asarray(soft_mode_mask, bool)
+    markers = ["o", "^", "s", "D", "v", "P", "X", "*", "<", ">"]
 
-    markers = ["o", "^", "s", "D", "v", "P"]   # extend if >6 distinct elements ever appear
     if elements is not None:
         elements = np.asarray(elements)
-        unique_elements = np.unique(elements)
+        if len(elements) != n_modes:
+            raise ValueError("elements must have one entry per mode")
+        names = list(np.unique(elements))
+        if all_elements is not None:
+            names = sorted(set(map(str, all_elements)) | set(map(str, names)))
+        counts = {el: int((elements == el).sum()) for el in names}
+        order = sorted(names, key=lambda el: -counts[el])          # most numerous first
+        marker_of = {el: markers[i % len(markers)] for i, el in enumerate(names)}
+        n_el = len(names)
+        shift = {el: (i - (n_el - 1) / 2) * element_offset_pt for i, el in enumerate(names)}
     else:
-        unique_elements = [None]
+        names, counts, order = [None], {None: n_modes}, [None]
+        marker_of, shift = {None: "o"}, {None: 0.0}
 
     fig, ax = plt.subplots(figsize=(7, 5))
-
-    for el_i, el in enumerate(unique_elements):
-        marker = markers[el_i % len(markers)] if elements is not None else "o"
-        el_mask = (elements == el) if elements is not None else np.ones(n_modes, dtype=bool)
-
-        if soft_mode_mask is not None:
-            soft_mode_mask = np.asarray(soft_mode_mask)
-            m_other, m_soft = el_mask & ~soft_mode_mask, el_mask & soft_mode_mask
-            ax.scatter(eigenvalues[m_other], participation_ratio[m_other],
-                       s=12, c="steelblue", alpha=0.6, marker=marker)
-            ax.scatter(eigenvalues[m_soft], participation_ratio[m_soft],
-                       s=24, c="crimson", alpha=0.85, marker=marker)
-        else:
-            ax.scatter(eigenvalues[el_mask], participation_ratio[el_mask],
-                       s=12, c="steelblue", alpha=0.7, marker=marker)
+    for rank, el in enumerate(order):
+        main = rank == 0                                            # most numerous element
+        el_mask = (elements == el) if elements is not None else np.ones(n_modes, bool)
+        if not el_mask.any():
+            continue
+        # most numerous: original look; rarer elements: bigger, opaque, edged, on top
+        style = dict(s_other=12, s_soft=24, a_other=0.6, a_soft=0.85, edge="none", lw=0)
+        if not main:
+            style = dict(s_other=40, s_soft=60, a_other=1.0, a_soft=1.0, edge="black", lw=0.4)
+        groups = ([(el_mask & ~soft_mode_mask, "steelblue", style["s_other"], style["a_other"]),
+                   (el_mask & soft_mode_mask, "crimson", style["s_soft"], style["a_soft"])]
+                  if soft_mode_mask is not None else
+                  [(el_mask, "steelblue", style["s_other"], 0.7 if main else 1.0)])
+        for sel, color, size, alpha in groups:
+            if not sel.any():
+                continue
+            sc = ax.scatter(eigenvalues[sel], participation_ratio[sel], s=size, c=color,
+                            alpha=alpha, marker=marker_of[el], edgecolors=style["edge"],
+                            linewidths=style["lw"], zorder=3 + rank)
+            if shift[el]:
+                # drawing offset only (data unchanged; also works with log axes)
+                sc.set_offset_transform(sc.get_offset_transform() +
+                                        ScaledTranslation(shift[el] / 72, 0, fig.dpi_scale_trans))
 
     if soft_mode_mask is not None:
-        color_handles = [
-            plt.Line2D([0], [0], marker="o", color="steelblue", linestyle="",
-                       markersize=6, label="other modes"),
-            plt.Line2D([0], [0], marker="o", color="crimson", linestyle="",
-                       markersize=7, label="soft/localized modes"),
-        ]
+        color_handles = [plt.Line2D([0], [0], marker="o", color="steelblue", linestyle="", markersize=6, label="other modes"),
+                         plt.Line2D([0], [0], marker="o", color="crimson", linestyle="", markersize=7, label="soft/localized modes")]
         color_legend = ax.legend(handles=color_handles, loc="upper right", title="mode type")
         ax.add_artist(color_legend)
-
     if elements is not None:
-        shape_handles = [
-            plt.Line2D([0], [0], marker=markers[i % len(markers)], color="gray",
-                       linestyle="", markersize=7, label=el)
-            for i, el in enumerate(unique_elements)
-        ]
-        ax.legend(handles=shape_handles, loc="lower right", title="dominant element")
-
+        shape_handles = [plt.Line2D([0], [0], marker=marker_of[el], color="gray", linestyle="",
+                                    markersize=7, label=f"{el} (n={counts[el]})") for el in names]
+        ax.legend(handles=shape_handles, loc="lower right",
+                  title="dominant element" + ("\n(shifted sideways)" if len(names) > 1 else ""))
     ax.set_xlabel(r"Mode eigenvalue $\langle a_n^2\rangle$ (Å$^2$) — larger = softer")
     ax.set_ylabel("Participation ratio")
     ax.set_title("Participation Ratio vs. Mode Softness")
     plt.tight_layout()
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     plt.savefig(save_path, dpi=300)
     plt.close()
     print(f"Saved: {save_path}")
+
+
+def plot_mode_atom_distribution_by_element(eigenvectors, elements, soft_mode_mask=None,
+                                           save_dir=None, bins=60):
+    """
+    One figure per element showing with which atoms every mode is populated.
+
+    top    : share of each mode's total participation carried by this
+             element's atoms (dashed line = the element's share of the atoms;
+             above it the element is over-represented in that mode)
+    bottom : for every mode, the distribution over this element's atoms of
+             the per-atom participation p[i, n] (shown as N * p[i, n]:
+             1 = an equal share of the mode, 10 = ten times an equal share)
+             -- colour = fraction of this element's atoms in that bin.
+    Modes are in the order given (softest first); soft modes are shaded.
+    """
+    from matplotlib.colors import LogNorm
+    from analysis.element_statistics import element_mode_participation
+    if save_dir is None:
+        save_dir = OUTPUT_DIR
+    elements = np.asarray(elements)
+    p, share, population = element_mode_participation(eigenvectors, elements)
+    N, K = p.shape
+    soft = np.zeros(K, dtype=bool) if soft_mode_mask is None else np.asarray(soft_mode_mask, bool)
+
+    rel = np.log10(np.maximum(N * p, 1e-8))               # log10 of N * p[i, n]
+    edges = np.linspace(rel.min(), rel.max(), bins + 1)
+
+    for el in share:
+        sel = elements == el
+        hist = np.stack([np.histogram(rel[sel, n], bins=edges)[0] / sel.sum()
+                         for n in range(K)], axis=1)         # (bins, K)
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 8), sharex=True,
+                                       gridspec_kw={"height_ratios": [1, 2]})
+        modes = np.arange(K)
+        ax1.plot(modes, share[el], "-", color="tab:blue")
+        ax1.axhline(population[el], ls="--", color="k", lw=1,
+                    label=f"{el} share of atoms ({population[el]:.2f})")
+        ax1.set_ylabel(f"{el} share of mode")
+        ax1.set_title(f"How the modes are populated -- {el} atoms (n={int(sel.sum())})")
+        ax1.legend()
+        im = ax2.pcolormesh(np.arange(K + 1) - 0.5, edges, hist, cmap="viridis",
+                            norm=LogNorm(vmin=1.0 / sel.sum(), vmax=hist.max()))
+        ax2.set_xlabel("mode index (0 = softest)")
+        ax2.set_ylabel(r"log$_{10}$(N $\cdot$ participation of atom)")
+        fig.colorbar(im, ax=[ax1, ax2], label=f"fraction of {el} atoms", pad=0.02)
+        if soft.any():
+            for ax in (ax1, ax2):
+                ax.axvspan(modes[soft].min() - 0.5, modes[soft].max() + 0.5,
+                           color="tab:red", alpha=0.12, lw=0)
+        path = os.path.join(save_dir, f"participation_per_mode_{el}.png")
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
+        print(f"Saved: {path}")
 
 
 def plot_softness_map(atoms_ref, softness, atom_indices=None,
@@ -935,6 +1009,74 @@ def plot_distribution_by_element(series, elements, xlabel, title, bins=40, save_
     ax.set_title(title)
     ax.legend()
     fig.tight_layout()
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {save_path}")
+
+
+def plot_d2min_by_soft_neighbours(n_soft_neighbours, soft_mask, values, null=None,
+                                  value_label="D²_min (Å²)", max_group=5, save_path=None):
+    """
+    D^2_min of NON-soft atoms grouped by how many soft atoms they have as
+    neighbours (0, 1, 2, ... and "k+" for the last group).
+
+    n_soft_neighbours : (N,) int array -- soft neighbours of every atom
+    soft_mask : (N,) bool array -- soft atoms (excluded from the groups)
+    values : dict {panel title: (N,) array}, e.g. {"raw D2_min": ..., "excess": ...}
+        -- one panel per entry (sharing the x axis)
+    null : dict {panel title: {k: (mean, std)}}, optional -- the group mean expected
+        by chance (soft labels permuted within (element, coordination number)),
+        drawn as a grey band, e.g. soft_source_analysis()[...]["spatial"]
+        ["null_by_n_soft_neighbours"]
+
+    max_group : the last group collects every atom with max_group or more soft neighbours.
+
+    Per group: box = quartiles (line = median), whiskers = 5th-95th
+    percentile, red dot with bar = mean +- standard error, n written on top.
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "d2min_by_soft_neighbours.png")
+    n_soft_neighbours = np.asarray(n_soft_neighbours)
+    soft_mask = np.asarray(soft_mask, bool)
+    # use exactly the groups the null was computed for (last group = "top or more")
+    top = max_group                      # last group = "max_group or more"
+    if null is not None:
+        for d in null.values():
+            if set(d) != set(range(top + 1)):
+                raise ValueError(f"null was computed for groups {sorted(d)} but max_group={max_group}; "
+                                 "pass the same max_group to soft_source_analysis")
+    groups = list(range(top + 1))
+    labels = [str(g) if g < top else f"{g}+" for g in groups]
+    in_group = [(~soft_mask) & ((n_soft_neighbours == g) if g < top else (n_soft_neighbours >= g))
+                for g in groups]
+
+    fig, axes = plt.subplots(1, len(values), figsize=(5.5 * len(values), 5), sharex=True)
+    axes = np.atleast_1d(axes)
+    for ax, (title, v) in zip(axes, values.items()):
+        v = np.asarray(v, dtype=float)
+        data = [v[m][np.isfinite(v[m])] for m in in_group]
+        ax.boxplot(data, positions=groups, whis=(5, 95), showfliers=False, widths=0.55,
+                   medianprops=dict(color="black"), boxprops=dict(color="tab:blue"),
+                   whiskerprops=dict(color="tab:blue"), capprops=dict(color="tab:blue"))
+        means = np.array([d.mean() for d in data])
+        sem = np.array([d.std(ddof=1) / np.sqrt(len(d)) if len(d) > 1 else np.nan for d in data])
+        if null is not None and title in null:
+            for g in groups:
+                m0, s0 = null[title][g]
+                ax.fill_between([g - 0.4, g + 0.4], [m0 - s0] * 2, [m0 + s0] * 2,
+                                color="grey", alpha=0.35, zorder=1,
+                                label="expected by chance (mean ± std)" if g == 0 else None)
+        ax.errorbar(groups, means, yerr=sem, fmt="o", color="tab:red", capsize=3, zorder=5,
+                    label="mean ± s.e.m.")
+        ax.set_xticks(groups)
+        ax.set_xticklabels([f"{lab}\n(n={len(d)})" for lab, d in zip(labels, data)])
+        ax.set_xlabel("number of soft neighbours")
+        ax.set_ylabel(value_label)
+        ax.set_title(title)
+    handles, labs = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labs, loc="lower center", ncol=len(handles), fontsize=9)
+    fig.suptitle("D²_min of non-soft atoms vs. number of soft neighbours (final frame)")
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
     fig.savefig(save_path, dpi=150)
     plt.close(fig)
     print(f"Saved: {save_path}")

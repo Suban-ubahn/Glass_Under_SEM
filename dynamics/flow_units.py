@@ -128,7 +128,8 @@ def compute_d2min(atoms_ref, atoms_cur, cutoff=CUTOFF_DICT, min_neighbors=4):
     return d2min, F_all
 
 
-def d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF_DICT):
+def d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF_DICT,
+                     reference_positions=None):
     """
     Compute D^2_min at every frame relative to a fixed reference
     frame t0, across a full loaded trajectory.
@@ -141,13 +142,21 @@ def d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF_DICT):
     frame_step : int
         Stride between compared frames (1 = every frame).
     cutoff : float or dict — see compute_d2min's docstring.
+    reference_positions : (N, 3) array, optional
+        If given (e.g. the mean structure from
+        utils.compute_displacements(utils.unwrap_positions(...))), the
+        reference configuration is trajectory[t0] with its positions
+        replaced by these, instead of trajectory[t0] itself.
 
     Returns
     -------
     d2min_series : list of (N,) np.ndarray — one per compared frame
-    frame_indices : list of int — which frames were compared to t0
+    frame_indices : list of int — which frames were compared to the reference
     """
     atoms_ref = trajectory[t0]
+    if reference_positions is not None:
+        atoms_ref = atoms_ref.copy()
+        atoms_ref.positions = reference_positions
     frame_indices = list(range(0, len(trajectory), frame_step))
     d2min_series = [
         compute_d2min(atoms_ref, trajectory[idx], cutoff=cutoff)[0]

@@ -580,6 +580,69 @@ def detect_tls_amplitude(mode_result, delta_bic_threshold=6.0,
         "tls_score": tls_score,
         "is_tls": tls_score > 0,
     }
+
+def mode_amplitude_diagnostics(mode_result, n_modes=20, mode_idx=None, seed=0):
+    """
+    Everything needed to LOOK at P(a_n) for the n_modes softest modes
+    (modes_from_displacements() sorts them softest first, so these are
+    simply the first n_modes columns of mode_result["amplitudes"]).
+
+    Each amplitude series is shifted to zero mean and divided by its own
+    standard deviation, so every mode is shown in units of sigma_n and
+    a single Gaussian is the same N(0, 1) curve for all of them.
+
+    Also runs the SAME 1-vs-2-Gaussian fit that detect_tls_amplitude()
+    uses (with its default thresholds), so what you see in the plot is
+    what the detector saw.
+
+    Parameters
+    ----------
+    mode_result : dict from soft_mode_analysis_3d() / _2d_slices() entry
+    n_modes : int -- how many of the softest modes to include
+    mode_idx : array of int, optional -- use exactly these modes instead
+        (e.g. the modes with the largest weight on one atom of interest)
+
+    Returns
+    -------
+    dict (M = number of modes included, T = number of frames):
+      mode_idx            (M,)     mode indices (0 = softest)
+      a_std               (M, T)   a_n(t) in units of sigma_n, zero mean
+      sigma               (M,)     sigma_n in the original amplitude units
+      eigenvalues         (M,)
+      participation       (M,) or None
+      skewness, excess_kurtosis, bimodality_coefficient   (M,)
+      delta_bic, separation, n_switches, t_eff            (M,)
+      is_tls              (M,) bool -- the detector's verdict (default thresholds)
+      means (M,2), sigmas (M,2), weights (M,2) -- the 2-Gaussian fit (in sigma units)
+    """
+    from scipy.stats import skew, kurtosis
+    amps = np.asarray(mode_result["amplitudes"], dtype=float)
+    idx = np.arange(min(n_modes, amps.shape[1])) if mode_idx is None else np.asarray(mode_idx, int)
+    a = amps[:, idx]                                                        # (T, M)
+    T, M = a.shape
+    sigma = a.std(axis=0)
+    a_std = ((a - a.mean(axis=0)) / np.where(sigma > 0, sigma, 1.0)).T      # (M, T)
+
+    stats = bimodality_test_batch(a_std[:, :, None], seed=seed)
+    part = mode_result.get("participation")
+    return {
+        "mode_idx": idx,
+        "a_std": a_std,
+        "sigma": sigma,
+        "eigenvalues": np.asarray(mode_result["eigenvalues"])[idx],
+        "participation": None if part is None else np.asarray(part)[idx],
+        "skewness": skew(a_std, axis=1),
+        "excess_kurtosis": kurtosis(a_std, axis=1),
+        "bimodality_coefficient": np.array([bimodality_coefficient(a_std[m]) for m in range(M)]),
+        "delta_bic": stats["delta_bic"],
+        "separation": stats["separation"],
+        "n_switches": stats["n_switches"],
+        "t_eff": stats["t_eff"],
+        "is_tls": stats["is_tls"],
+        "means": stats["means"][:, :, 0],
+        "sigmas": stats["sigmas"],
+        "weights": stats["weights"],
+    }
  
  
 if __name__ == "__main__":

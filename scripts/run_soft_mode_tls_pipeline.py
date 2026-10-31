@@ -26,7 +26,7 @@ from analysis.soft_modes import (
 )
 from analysis.tls_detection import (
     detect_tls_direct, detect_tls_direct_2d_slices, detect_tls_amplitude,
-    bimodality_test_batch,
+    bimodality_test_batch, mode_amplitude_diagnostics,
 )
 from analysis.soft_spot_tls_dmin_comparison import run_full_comparison
 from analysis.soft_source import soft_source_analysis
@@ -45,7 +45,7 @@ from utils import get_output_dir, unwrap_positions, compute_displacements
 from visualization.plot import (
     plot_participation_spectrum, plot_mode_atom_distribution_by_element, plot_softness_map,
     plot_mode_amplitude_distribution, plot_roc_curve, plot_soft_tls_scatter,
-    plot_distribution_by_element, plot_d2min_by_soft_neighbours,
+    plot_distribution_by_element, plot_d2min_by_soft_neighbours, plot_mode_amplitude_grid
 )
 from visualization.animate import (
     animate_distribution_by_element, animate_d2min_softness_side_by_side,
@@ -131,6 +131,10 @@ if __name__ == "__main__":
     )
     print(f"  {tls_B_3d['is_tls_mode'].sum()} / {len(tls_B_3d['checked_modes'])} "
           f"checked soft modes flagged as bimodal (TLS-like).")
+    
+    amp_diag = mode_amplitude_diagnostics(modes_3d, n_modes=20)
+    plot_mode_amplitude_grid(
+        amp_diag, save_path=os.path.join(OUTPUT_DIR, "mode_amplitude_distributions_3d.png"))
 
     if len(tls_B_3d["tls_mode_idx"]) > 0:
         example_mode = int(tls_B_3d["tls_mode_idx"][0])

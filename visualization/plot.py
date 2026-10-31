@@ -1080,3 +1080,81 @@ def plot_d2min_by_soft_neighbours(n_soft_neighbours, soft_mask, values, null=Non
     fig.savefig(save_path, dpi=150)
     plt.close(fig)
     print(f"Saved: {save_path}")
+
+def plot_mode_amplitude_grid(diag, ncols=4, bins=None, show_time_series=True, save_path=None):
+    """
+    P(a_n) of the softest modes, one panel per mode.
+    `diag` = analysis.tls_detection.mode_amplitude_diagnostics(...).
+
+    Every panel shows the amplitude a_n in units of its own standard
+    deviation (zero mean):
+      grey bars        histogram of a_n(t) over all frames (density)
+      small ticks      every single frame, along the bottom (so you can
+                       see how many samples there really are)
+      red line         ONE Gaussian N(0, 1) -- what an ordinary single-well
+                       vibration would look like
+      green dashed     the 2-Gaussian mixture the TLS detector fitted
+    Title: mode index, eigenvalue, participation ratio (if available),
+    DeltaBIC (> 6: the mixture is preferred), BC = bimodality coefficient
+    (> 0.555 hints at two peaks), T_eff = effective number of independent
+    frames. A mode the detector flags as TLS gets a red title.
+
+    show_time_series=True adds the raw a_n(t) under each histogram: two
+    levels that the curve jumps between = hopping (a TLS); one smooth
+    ramp = drift; noise around zero = ordinary vibration.
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "mode_amplitude_distributions.png")
+    a = np.asarray(diag["a_std"])                               # (M, T)
+    M, T = a.shape
+    if bins is None:
+        bins = int(np.clip(np.sqrt(T), 8, 30))
+    nrows = int(np.ceil(M / ncols))
+    rows_per_mode = 2 if show_time_series else 1
+    fig = plt.figure(figsize=(3.6 * ncols, (2.9 if show_time_series else 2.4) * nrows))
+    gs = fig.add_gridspec(nrows * rows_per_mode, ncols,
+                          height_ratios=([3, 1] if show_time_series else [1]) * nrows,
+                          hspace=0.75 if show_time_series else 0.6, wspace=0.3,
+                          top=0.93, bottom=0.04)
+
+    lim = max(3.5, float(np.abs(a).max()) * 1.05)
+    x = np.linspace(-lim, lim, 400)
+    gauss = lambda m, s: np.exp(-0.5 * ((x - m) / s) ** 2) / (s * np.sqrt(2 * np.pi))
+
+    for m in range(M):
+        r, c = divmod(m, ncols)
+        ax = fig.add_subplot(gs[r * rows_per_mode, c])
+        ax.hist(a[m], bins=bins, range=(-lim, lim), density=True, color="0.7", edgecolor="white")
+        ax.plot(x, gauss(0.0, 1.0), color="tab:red", lw=1.5)
+        mix = sum(diag["weights"][m, k] * gauss(diag["means"][m, k], diag["sigmas"][m, k])
+                  for k in range(2))
+        ax.plot(x, mix, color="tab:green", ls="--", lw=1.5)
+        ax.plot(a[m], np.full(T, -0.02 * ax.get_ylim()[1]), "|", color="k", alpha=0.5, ms=5,
+                clip_on=False)
+        ax.set_xlim(-lim, lim)
+        ax.set_yticks([])
+        pr = "" if diag["participation"] is None else f"  PR={diag['participation'][m]:.2f}"
+        ax.set_title(f"mode {diag['mode_idx'][m]}  λ={diag['eigenvalues'][m]:.2g}{pr}\n"
+                     f"ΔBIC={diag['delta_bic'][m]:.1f}  BC={diag['bimodality_coefficient'][m]:.2f}  "
+                     f"T_eff={diag['t_eff'][m]:.0f}",
+                     fontsize=8, color="tab:red" if diag["is_tls"][m] else "black")
+        if not show_time_series:
+            ax.set_xlabel(r"$a_n/\sigma_n$", fontsize=8)
+        if show_time_series:
+            axt = fig.add_subplot(gs[r * rows_per_mode + 1, c])
+            axt.plot(a[m], color="k", lw=0.8)
+            axt.axhline(0, color="0.6", lw=0.5)
+            axt.set_ylim(-lim, lim)
+            axt.set_xlim(0, T - 1)
+            axt.tick_params(labelsize=6)
+            if r == nrows - 1:
+                axt.set_xlabel("frame", fontsize=7)
+            else:
+                axt.set_xticklabels([])
+
+    fig.suptitle("P(a_n) of the softest modes, a_n in units of its standard deviation   "
+                 "(red = single Gaussian, green dashed = detector's 2-Gaussian fit)",
+                 fontsize=11, y=0.985)
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {save_path}")

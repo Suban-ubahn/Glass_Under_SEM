@@ -1,8 +1,8 @@
 # =============================================================
-# analysis/soft_spot_tls_dmin_comparison.py
+# analysis/soft_modes/comparison.py
 #
-# Compares the three quantities from analysis/soft_modes.py and
-# analysis/tls_detection.py against each other and against
+# Compares the three quantities from analysis/soft_modes/modes.py and
+# analysis/soft_modes/tls.py against each other and against
 # dynamics.flow_units' D^2_min:
 #
 #   1. soft spots vs. TLS         -> compare_soft_tls()
@@ -178,7 +178,7 @@ def predict_d2min_from_score(score, trajectory, t0=0, delta_frames=None,
     visualization.plot.plot_roc_curve), "enrichment" (dict from
     enrichment_top_fraction).
     """
-    from dynamics.flow_units import compute_d2min
+    from analysis.d2min.compute import compute_d2min
     from scipy.stats import spearmanr
     from utils import unwrap_positions, compute_displacements
 
@@ -244,8 +244,8 @@ if __name__ == "__main__":
         TLS_MIN_WEIGHT_FRACTION, TLS_MIN_SWITCHES,
         D2MIN_QUANTILE_THRESHOLD, D2MIN_TOP_FRACTION,
     )
-    from analysis.soft_modes import soft_mode_analysis_3d
-    from analysis.tls_detection import detect_tls_direct, detect_tls_amplitude
+    from analysis.soft_modes.modes import soft_mode_analysis_3d
+    from analysis.soft_modes.tls import detect_tls_direct, detect_tls_amplitude
 
     trajectory = load_trajectory(TRAJECTORY_FILE)
     print(f"Loaded {len(trajectory)} frames, {len(trajectory[0])} atoms.")

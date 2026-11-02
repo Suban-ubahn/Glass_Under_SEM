@@ -1,5 +1,5 @@
 # =============================================================
-# analysis/tls_detection.py — two-level-system (TLS) detection
+# analysis/soft_modes/tls.py — two-level-system (TLS) detection
 #
 # Two independent methods, matching your professor's email:
 #
@@ -465,7 +465,7 @@ def detect_tls_direct_2d_slices(trajectory, n_slices=10, cutoff=CUTOFF_DICT,
     Extra **kwargs are forwarded to detect_tls_direct() (e.g.
     delta_bic_threshold, min_switches, ...).
     """
-    from analysis.soft_modes import assign_z_slices
+    from analysis.soft_modes.modes import assign_z_slices
  
     positions_3d = np.array([a.positions for a in trajectory])
     mean_pos = positions_3d.mean(axis=0)
@@ -652,7 +652,7 @@ if __name__ == "__main__":
         TLS_DELTA_BIC_THRESHOLD, TLS_SEPARATION_THRESHOLD,
         TLS_MIN_WEIGHT_FRACTION, TLS_MIN_SWITCHES,
     )
-    from analysis.soft_modes import soft_mode_analysis_3d
+    from analysis.soft_modes.modes import soft_mode_analysis_3d
  
     trajectory = load_trajectory(TRAJECTORY_FILE)
     print(f"Loaded {len(trajectory)} frames, {len(trajectory[0])} atoms.")

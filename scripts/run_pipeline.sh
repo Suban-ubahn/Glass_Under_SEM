@@ -4,7 +4,7 @@
 #
 # Stages, in order:
 #   1. Dynamics    — g(r)-derived cutoff + D^2_min non-affine map
-#                    (dynamics/flow_units.py)
+#                    (analysis/d2min/compute.py)
 #   2. Projection  — hole/defect projection maps + cross-correlation
 #                    (scripts/build_projection_maps.py)
 #   3. Diffraction — 4D-STEM simulation (heavy; see README's WSL2
@@ -56,7 +56,7 @@ print('Trajectory file OK:', config.TRAJECTORY_FILE)
 # ------------------------------------------------------------
 echo ""
 echo "=== [1/4] Dynamics: pair correlation + D^2_min ==="
-python dynamics/flow_units.py
+python analysis/d2min/compute.py
 
 # ------------------------------------------------------------
 # Stage 2 — hole + defect projection maps, cross-correlation

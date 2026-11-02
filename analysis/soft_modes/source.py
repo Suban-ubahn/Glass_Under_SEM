@@ -1,5 +1,5 @@
 # =============================================================
-# analysis/soft_source.py
+# analysis/soft_modes/source.py
 #
 # Are soft atoms "sources" of plastic activity? I.e. is high D^2_min
 # found around soft atoms (WHERE), and does it appear there first (WHEN)?

@@ -656,8 +656,8 @@ def plot_d2min_hole_distance(stats, save_path=None, smooth=False, smooth_window=
 
 # =============================================================
 # Soft-mode / TLS analysis plots
-#   (analysis/soft_modes.py, analysis/tls_detection.py,
-#    analysis/soft_spot_tls_dmin_comparison.py)
+#   (analysis/soft_modes/modes.py, analysis/soft_modes/tls.py,
+#    analysis/soft_modes/comparison.py)
 # =============================================================
 
 def plot_participation_spectrum(eigenvalues, participation_ratio,
@@ -772,7 +772,7 @@ def plot_mode_atom_distribution_by_element(eigenvectors, elements, soft_mode_mas
     Modes are in the order given (softest first); soft modes are shaded.
     """
     from matplotlib.colors import LogNorm
-    from analysis.element_statistics import element_mode_participation
+    from analysis.soft_modes.element_stats import element_mode_participation
     if save_dir is None:
         save_dir = OUTPUT_DIR
     elements = np.asarray(elements)
@@ -989,7 +989,7 @@ def plot_distribution_by_element(series, elements, xlabel, title, bins=40, save_
     series : (T, N) array (NaN = "not enough data yet", ignored)
     elements : (N,) array of element symbols
     """
-    from analysis.element_statistics import pool_series_by_element
+    from analysis.soft_modes.element_stats import pool_series_by_element
     if save_path is None:
         save_path = os.path.join(OUTPUT_DIR, "distribution_by_element.png")
 

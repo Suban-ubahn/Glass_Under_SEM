@@ -22,7 +22,7 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
 import torch
 
-from holes.core import compute_void_grid,find_holes,get_grid_coords,get_largest_holes
+from holes.kdtree import compute_void_grid,find_holes,get_grid_coords,get_largest_holes
 from holes.fft import compute_Vcell, compute_Vloch, find_hole_peaks, voxel_to_position
 from graph.build import atoms_to_pyg
 from graph.defects import (
@@ -38,8 +38,8 @@ from config import (
     VOXEL_EDGE, R_CUT_VOID, CUTOFF_DICT, DEFECT_THRESHOLD, DEFECT_K,
     N_SOFT_MODES, SOFT_MODE_PR_MAX,
 )
-from dynamics.flow_units import d2min_consecutive_trajectory, d2min_trajectory
-from analysis.soft_modes import softness_trajectory
+from analysis.d2min.compute import d2min_consecutive_trajectory, d2min_trajectory
+from analysis.soft_modes.modes import softness_trajectory
 
 # ------------------------------------------------------------
 # 1. KDTree hole animation  (was find_holes_animation.py)
@@ -643,7 +643,7 @@ def animate_distribution_by_element(series, frame_indices, elements, xlabel,
 
     series : (T, N); frame_indices : (T,); elements : (N,) symbols.
     """
-    from analysis.element_statistics import pool_series_by_element
+    from analysis.soft_modes.element_stats import pool_series_by_element
     if save_path is None:
         save_path = os.path.join(OUTPUT_DIR, "distribution_by_element.mp4")
 
@@ -685,8 +685,8 @@ def animate_d2min_softness_side_by_side(
     Pass precomputed d2min_series / softness_series (T, N) to avoid
     recomputing them.
     """
-    from analysis.element_statistics import pool_series_by_element
-    from analysis.soft_modes import softness_trajectory
+    from analysis.soft_modes.element_stats import pool_series_by_element
+    from analysis.soft_modes.modes import softness_trajectory
     if save_path is None:
         save_path = os.path.join(
             OUTPUT_DIR, "d2min_softness_side_by_side_3d.mp4" if show_distributions

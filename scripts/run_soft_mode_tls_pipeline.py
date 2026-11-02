@@ -21,16 +21,16 @@ import os
 
 import numpy as np
 
-from analysis.soft_modes import (
+from analysis.soft_modes.modes import (
     soft_mode_analysis_3d, soft_mode_analysis_2d_slices, softness_trajectory,
 )
-from analysis.tls_detection import (
+from analysis.soft_modes.tls import (
     detect_tls_direct, detect_tls_direct_2d_slices, detect_tls_amplitude,
     bimodality_test_batch, mode_amplitude_diagnostics,
 )
-from analysis.soft_spot_tls_dmin_comparison import run_full_comparison
-from analysis.soft_source import soft_source_analysis
-from analysis.element_statistics import (
+from analysis.soft_modes.comparison import run_full_comparison
+from analysis.soft_modes.source import soft_source_analysis
+from analysis.soft_modes.element_stats import (
     get_element_symbols, score_by_element, mode_dominant_elements,
     persistence_above_threshold, persistence_by_element, print_element_table,
 )
@@ -40,7 +40,7 @@ from config import (
     TLS_MIN_SWITCHES, D2MIN_QUANTILE_THRESHOLD, D2MIN_TOP_FRACTION, MAX_SOFT_NB,
 )
 from data_io.trajectory import load_trajectory
-from dynamics.flow_units import d2min_trajectory
+from analysis.d2min.compute import d2min_trajectory
 from utils import get_output_dir, unwrap_positions, compute_displacements
 from visualization.plot import (
     plot_participation_spectrum, plot_mode_atom_distribution_by_element, plot_softness_map,

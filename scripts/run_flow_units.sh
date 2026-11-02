@@ -2,13 +2,13 @@
 # =============================================================
 # run_flow_units.sh — flow-units + d2min comparison pipeline
 #
-# Runs dynamics/flow_units.py: g(r)-derived, species-resolved
+# Runs analysis/d2min/compute.py: g(r)-derived, species-resolved
 # cutoffs (via config.CUTOFF_ZRZR/ZRCU/CUCU) + non-affine
 # displacement (D^2_min) between the first and last frame of
 # the trajectory.
 #
 # Then runs the d2min-vs-defects and d2min-vs-holes comparisons
-# (analysis/d2min_comparison.py) and their animations
+# (analysis/d2min/comparison.py) and their animations
 # (visualization/animate.py).
 #
 # Run from the project root:
@@ -33,7 +33,7 @@ print('CUTOFF_CUCU (g(r)-derived):', config.CUTOFF_CUCU, 'A')
 
 echo ""
 echo "=== Dynamics: pair correlation + D^2_min ==="
-python dynamics/flow_units.py
+python analysis/d2min/compute.py
 
 echo ""
 echo "=== Flow-unit / D2min animations ==="

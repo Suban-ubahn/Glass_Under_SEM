@@ -1,5 +1,5 @@
 # =============================================================
-# analysis/element_statistics.py
+# analysis/soft_modes/element_stats.py
 #
 # Per-element (Zr vs Cu) breakdowns of the soft-spot / TLS / D^2_min
 # fields computed elsewhere in this package:

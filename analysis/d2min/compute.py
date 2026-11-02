@@ -1,5 +1,5 @@
 # =============================================================
-# dynamics/flow_units.py — non-affine displacement (D^2_min)
+# analysis/d2min/compute.py — non-affine displacement (D^2_min)
 #
 # Implements the Falk & Langer (1998) local non-affine squared
 # displacement, used to identify STZ-like / "flow unit"-like

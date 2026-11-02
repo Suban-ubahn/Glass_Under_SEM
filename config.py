@@ -44,7 +44,7 @@ TYPE_TO_RADIUS = {1: R_ZR, 2: R_CU}   # LAMMPS type → radius
 VOXEL_EDGE = 0.3   # Å  — grid resolution for hole/occupancy fields
 
 # ------------------------------------------------------------
-# Hole detection — KDTree / voxel approach  (holes/core.py)
+# Hole detection — KDTree / voxel approach  (holes/kdtree.py)
 # ------------------------------------------------------------
 
 R_CUT_VOID = 2.0   # Å  — voxels closer than this to any atom are "occupied"
@@ -66,7 +66,7 @@ LAPLACE_THRESHOLD = 0.01   # Laplacian threshold for peak detection
 #   CUTOFF_*  — first MINIMUM after the first peak. The boundary of
 #               the full first coordination shell — used wherever
 #               code needs "every atom in the local neighborhood"
-#               (e.g. dynamics/flow_units.py's D^2_min: the affine
+#               (e.g. analysis/d2min/compute.py's D^2_min: the affine
 #               fit needs the complete local shell, not just the
 #               single most-common bond distance).
 #
@@ -155,8 +155,8 @@ NORMALIZE_VAL = False
 
 # ------------------------------------------------------------
 # Soft-mode / TLS analysis
-#   (analysis/soft_modes.py, analysis/tls_detection.py,
-#    analysis/soft_spot_tls_dmin_comparison.py)
+#   (analysis/soft_modes/modes.py, analysis/soft_modes/tls.py,
+#    analysis/soft_modes/comparison.py)
 # ------------------------------------------------------------
 
 N_Z_SLICES       = 10     # equally spaced z-slabs for the 2D (CAVIAR-style) analysis
@@ -167,7 +167,7 @@ SOFT_MODE_PR_MAX = None   # participation-ratio cutoff for "quasi-localized" -- 
                            # system modes run PR ~0.15-0.6 (fairly delocalized -- with this
                            # few frames vs. 3*6750 DOF, the SVD can only resolve large-scale,
                            # multi-atom motion reliably, not single-atom localization; see
-                           # module docstring in analysis/soft_modes.py). Set a cutoff (e.g.
+                           # module docstring in analysis/soft_modes/modes.py). Set a cutoff (e.g.
                            # 0.2-0.3) once you've looked at plot_participation_spectrum() for
                            # your own run, or restrict atom_indices to a small local
                            # neighborhood instead (matching the notebook's Part 2 approach)

@@ -12,11 +12,11 @@
 import numpy as np
 from ase.neighborlist import neighbor_list
 
-from analysis.soft_modes import modes_from_displacements
-from analysis.element_statistics import print_element_table
+from analysis.soft_modes.modes import modes_from_displacements
+from analysis.soft_modes.element_stats import print_element_table
 from config import CUTOFF_DICT
 from data_io.trajectory import load_trajectory
-from dynamics.flow_units import compute_d2min
+from analysis.d2min.compute import compute_d2min
 from utils import unwrap_positions, compute_displacements
 
 trajectory = load_trajectory()

@@ -1,5 +1,5 @@
 # =============================================================
-# holes/core.py — KDTree / voxel hole detection
+# holes/kdtree.py — KDTree / voxel hole detection
 #
 # Detects free-volume holes by building a 3-D voxel grid,
 # marking voxels that are farther than r_cut from every atom

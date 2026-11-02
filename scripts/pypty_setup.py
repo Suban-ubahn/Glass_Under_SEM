@@ -1,5 +1,5 @@
 # =============================================================
-# diffraction/reconstruct_pypty_setup.py
+# scripts/pypty_setup.py
 #
 # Prepares the 4D-STEM data for ptychographic reconstruction:
 #   - Loads the abtem .zarr dataset
@@ -8,7 +8,7 @@
 #
 # Run with glass_sem_env:
 #   conda activate glass_sem_env
-#   python diffraction/reconstruct_pypty_setup.py
+#   python scripts/pypty_setup.py
 # =============================================================
 
 import numpy as np

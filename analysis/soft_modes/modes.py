@@ -1,5 +1,5 @@
 # =============================================================
-# analysis/soft_modes.py — quasi-harmonic soft-mode / participation-
+# analysis/soft_modes/modes.py — quasi-harmonic soft-mode / participation-
 # ratio analysis ("soft spots")
 #
 # Implements the method from:
@@ -238,7 +238,7 @@ def atom_softness_scores(eigenvalues, eigenvectors, n_soft_modes=20,
 
     This is the field plotted directly on the structure in
     Widmer-Cooper & Harrowell, and the ranking score used against
-    D^2_min in analysis/soft_spot_tls_dmin_comparison.py.
+    D^2_min in analysis/soft_modes/comparison.py.
 
     Parameters
     ----------

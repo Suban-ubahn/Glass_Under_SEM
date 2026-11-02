@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================
-# diffraction/param_sweep.sh
+# scripts/param_sweep.sh
 #
 # Sweeps over 4D-STEM simulation parameters to find optimal
 # settings for ptychography.
@@ -9,7 +9,7 @@
 #   GPTS=256, SLICE_THICKNESS=1, SAMPLING_FACTOR=3
 #
 # Run from project root:
-#   bash diffraction/param_sweep.sh
+#   bash scripts/param_sweep.sh
 # =============================================================
 
 PYTHON=/home/suban/miniconda3/envs/glass_sem_env/bin/python

@@ -2,7 +2,7 @@ import numpy as np
 
 from graph.build import atoms_to_pyg
 from graph.defects import compute_degrees, classify_defects_statistical
-from dynamics.flow_units import d2min_trajectory
+from analysis.d2min.compute import d2min_trajectory
 
 from scipy.spatial import cKDTree
 from holes.fft import compute_Vcell, compute_Vloch, find_hole_peaks, voxel_to_position

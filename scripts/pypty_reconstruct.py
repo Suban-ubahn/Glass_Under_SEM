@@ -1,11 +1,11 @@
 # =============================================================
-# diffraction/reconstruct_pypty.py
+# scripts/pypty_reconstruct.py
 #
 # Iterative ptychographic reconstruction using pypty.
 #
 # Run with pypty env:
 #   conda activate pypty
-#   python diffraction/reconstruct_pypty.py
+#   python scripts/pypty_reconstruct.py
 #
 # Requires: outputs/diffraction/4d_stem.h5  (from reconstruct_pypty_setup.py)
 # Output:   outputs/diffraction/ptycho_output/

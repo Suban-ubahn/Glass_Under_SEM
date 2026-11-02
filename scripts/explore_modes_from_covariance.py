@@ -6,7 +6,7 @@
 # this pipeline) against modes_from_displacements() (the SVD-based
 # path the rest of the pipeline actually runs) on the SAME real data
 # -- they should agree, since they diagonalize the same mathematical
-# object (see analysis/soft_modes.py's module docstring: the
+# object (see analysis/soft_modes/modes.py's module docstring: the
 # covariance matrix IS CAVIAR's Green's tensor) via two different
 # numerical routes (economy SVD of the T x D displacement matrix vs.
 # direct eigh of the explicit D x D covariance matrix).
@@ -15,7 +15,7 @@
 #
 # Caught a real bug: an earlier version of modes_from_covariance's
 # mass-weighting divided by sqrt(mass) where it should have
-# multiplied (see the fix note in analysis/soft_modes.py's
+# multiplied (see the fix note in analysis/soft_modes/modes.py's
 # modes_from_covariance docstring) -- this script is what caught it,
 # and is worth re-running after any future change to either function.
 # =============================================================
@@ -25,7 +25,7 @@ import numpy as np
 from data_io.trajectory import load_trajectory
 from config import TRAJECTORY_FILE
 from utils import unwrap_positions, compute_displacements
-from analysis.soft_modes import (
+from analysis.soft_modes.modes import (
     modes_from_displacements, modes_from_covariance,
     participation_ratios, assign_z_slices,
 )

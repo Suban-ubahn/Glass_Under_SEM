@@ -73,7 +73,7 @@ def compute_displacements(positions, reference=None):
                 frame. Defaults to the time-average position per
                 atom, matching CAVIAR's own normalization
                 (u = R - mean(R), their Eq. 1) — see
-                analysis/soft_modes.py's module docstring.
+                analysis/soft_modes/modes.py's module docstring.
 
     Returns
     -------

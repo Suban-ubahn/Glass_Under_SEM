@@ -14,7 +14,7 @@ from ase.neighborlist import neighbor_list
 
 from analysis.soft_modes.modes import modes_from_displacements
 from analysis.soft_modes.element_stats import print_element_table
-from config import CUTOFF_DICT
+from cutoffs import CUTOFF_DICT
 from data_io.trajectory import load_trajectory
 from analysis.d2min.compute import compute_d2min
 from utils import unwrap_positions, compute_displacements

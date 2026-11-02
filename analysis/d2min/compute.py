@@ -16,7 +16,7 @@
 import numpy as np
 from ase.neighborlist import neighbor_list
 
-from config import CUTOFF_DICT
+from cutoffs import CUTOFF_DICT
 
 
 def compute_d2min(atoms_ref, atoms_cur, cutoff=CUTOFF_DICT, min_neighbors=4):
@@ -34,7 +34,7 @@ def compute_d2min(atoms_ref, atoms_cur, cutoff=CUTOFF_DICT, min_neighbors=4):
     cutoff : float or dict
         Neighbor cutoff radius (Å) defining each atom's local
         neighborhood, evaluated in the REFERENCE configuration.
-        Defaults to config.CUTOFF_DICT — a dict keyed by
+        Defaults to cutoffs.CUTOFF_DICT — a dict keyed by
         (Z_i, Z_j) real-atomic-number pairs, giving each of
         Zr-Zr/Zr-Cu/Cu-Cu its own g(r)-derived cutoff (the first
         MINIMUM after the first peak — the full coordination shell,
@@ -212,7 +212,7 @@ def d2min_consecutive_trajectory(trajectory, cutoff=CUTOFF_DICT):
 
 if __name__ == "__main__":
     from data_io.trajectory import load_trajectory
-    from config import CUTOFF_ZRZR, CUTOFF_ZRCU, CUTOFF_CUCU
+    from cutoffs import CUTOFF_ZRZR, CUTOFF_ZRCU, CUTOFF_CUCU
     from visualization.plot import plot_d2min_histogram, plot_d2min_map
 
     trajectory = load_trajectory()

@@ -35,10 +35,19 @@ from analysis.soft_modes.element_stats import (
     persistence_above_threshold, persistence_by_element, print_element_table,
 )
 from config import (
-    TRAJECTORY_FILE, CUTOFF_DICT, N_Z_SLICES, N_SOFT_MODES, SOFT_MODE_PR_MAX,
-    TLS_DELTA_BIC_THRESHOLD, TLS_SEPARATION_THRESHOLD, TLS_MIN_WEIGHT_FRACTION,
-    TLS_MIN_SWITCHES, D2MIN_QUANTILE_THRESHOLD, D2MIN_TOP_FRACTION, MAX_SOFT_NB,
+    TRAJECTORY_FILE,
+    N_Z_SLICES,
+    N_SOFT_MODES,
+    SOFT_MODE_PR_MAX,
+    TLS_DELTA_BIC_THRESHOLD,
+    TLS_SEPARATION_THRESHOLD,
+    TLS_MIN_WEIGHT_FRACTION,
+    TLS_MIN_SWITCHES,
+    D2MIN_QUANTILE_THRESHOLD,
+    D2MIN_TOP_FRACTION,
+    MAX_SOFT_NB,
 )
+from cutoffs import CUTOFF_DICT
 from data_io.trajectory import load_trajectory
 from analysis.d2min.compute import d2min_trajectory
 from utils import get_output_dir, unwrap_positions, compute_displacements

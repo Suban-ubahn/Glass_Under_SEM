@@ -28,7 +28,8 @@ import os
 import torch
 from torch_geometric.data import Data
 
-from config import CUTOFF_DICT, DEFECT_THRESHOLD, DEFECT_K
+from config import DEFECT_THRESHOLD, DEFECT_K
+from cutoffs import CUTOFF_DICT
 
 
 # ------------------------------------------------------------
@@ -199,7 +200,7 @@ def build_defect_subgraph(graph, defects, cutoff=CUTOFF_DICT):
 
     `cutoff` may be a single float (same threshold for every pair,
     old behavior) or a dict keyed by (Z_i, Z_j) real-atomic-number
-    pairs — see config.CUTOFF_DICT / config.CUTOFF_DICT —
+    pairs — see cutoffs.CUTOFF_DICT / cutoffs.CUTOFF_DICT —
     in which case the threshold used for each defect pair depends
     on which two species that specific pair is.
 

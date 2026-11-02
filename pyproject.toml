@@ -6,9 +6,12 @@ build-backend = "setuptools.build_meta"
 name = "glass_under_sem"
 version = "0.1.0"
 
+# The editable install exists only to put the project root on sys.path, so
+# `python scripts/foo.py` can import config / cutoffs / utils and the packages.
 [tool.setuptools]
-py-modules = ["config", "utils"]
+py-modules = ["config", "cutoffs", "utils"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["scratch*"]
+include = ["data_io*", "holes*", "graph*", "diffraction*", "analysis*", "visualization*"]
+namespaces = false

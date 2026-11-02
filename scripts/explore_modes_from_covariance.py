@@ -120,7 +120,7 @@ if __name__ == "__main__":
     # A much smaller, genuinely CAVIAR-Green's-tensor-sized problem:
     # one atom's local neighborhood (itself + its bonded shell).
     from ase.neighborlist import neighbor_list
-    from config import CUTOFF_DICT
+    from cutoffs import CUTOFF_DICT
     i_idx, j_idx, _ = neighbor_list("ijS", trajectory[0], CUTOFF_DICT)
     center_atom = 0
     neighborhood = np.unique(np.concatenate([[center_atom], j_idx[i_idx == center_atom]]))

@@ -20,7 +20,7 @@
 
 import numpy as np
 
-from config import CUTOFF_DICT
+from cutoffs import CUTOFF_DICT
 
 
 # ------------------------------------------------------------
@@ -239,11 +239,17 @@ def run_full_comparison(trajectory, softness, tls_score, t0=0, delta_frames=None
 if __name__ == "__main__":
     from data_io.trajectory import load_trajectory
     from config import (
-        TRAJECTORY_FILE, CUTOFF_DICT, N_SOFT_MODES, SOFT_MODE_PR_MAX,
-        TLS_DELTA_BIC_THRESHOLD, TLS_SEPARATION_THRESHOLD,
-        TLS_MIN_WEIGHT_FRACTION, TLS_MIN_SWITCHES,
-        D2MIN_QUANTILE_THRESHOLD, D2MIN_TOP_FRACTION,
+        TRAJECTORY_FILE,
+        N_SOFT_MODES,
+        SOFT_MODE_PR_MAX,
+        TLS_DELTA_BIC_THRESHOLD,
+        TLS_SEPARATION_THRESHOLD,
+        TLS_MIN_WEIGHT_FRACTION,
+        TLS_MIN_SWITCHES,
+        D2MIN_QUANTILE_THRESHOLD,
+        D2MIN_TOP_FRACTION,
     )
+    from cutoffs import CUTOFF_DICT
     from analysis.soft_modes.modes import soft_mode_analysis_3d
     from analysis.soft_modes.tls import detect_tls_direct, detect_tls_amplitude
 

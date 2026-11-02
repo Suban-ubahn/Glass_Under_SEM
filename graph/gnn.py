@@ -10,7 +10,8 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.nn import MessagePassing
 
 from graph.build import atoms_to_pyg
-from config import GNN_HIDDEN_DIM, GNN_EPOCHS, GNN_LR, GNN_BATCH_SIZE, GRAPH_CUTOFF_DICT
+from config import GNN_HIDDEN_DIM, GNN_EPOCHS, GNN_LR, GNN_BATCH_SIZE
+from cutoffs import GRAPH_CUTOFF_DICT
 
 
 # ------------------------------------------------------------

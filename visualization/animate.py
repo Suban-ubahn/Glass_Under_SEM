@@ -35,9 +35,14 @@ from graph.defects import (
 )
 
 from config import (
-    VOXEL_EDGE, R_CUT_VOID, CUTOFF_DICT, DEFECT_THRESHOLD, DEFECT_K,
-    N_SOFT_MODES, SOFT_MODE_PR_MAX,
+    VOXEL_EDGE,
+    R_CUT_VOID,
+    DEFECT_THRESHOLD,
+    DEFECT_K,
+    N_SOFT_MODES,
+    SOFT_MODE_PR_MAX,
 )
+from cutoffs import CUTOFF_DICT
 from analysis.d2min.compute import d2min_consecutive_trajectory, d2min_trajectory
 from analysis.soft_modes.modes import softness_trajectory
 

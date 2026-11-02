@@ -6,7 +6,8 @@ from analysis.d2min.compute import d2min_trajectory
 
 from scipy.spatial import cKDTree
 from holes.fft import compute_Vcell, compute_Vloch, find_hole_peaks, voxel_to_position
-from config import CUTOFF_DICT, DEFECT_K, VOXEL_EDGE
+from config import DEFECT_K, VOXEL_EDGE
+from cutoffs import CUTOFF_DICT
 
 def compute_d2min_defect_stats(trajectory, cutoff=CUTOFF_DICT, k=DEFECT_K):
     """

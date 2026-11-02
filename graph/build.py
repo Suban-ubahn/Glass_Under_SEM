@@ -10,7 +10,8 @@ import torch
 from torch_geometric.data import Data
 from ase.neighborlist import neighbor_list
 
-from config import TYPE_TO_Z, CUTOFF_DICT
+from config import TYPE_TO_Z
+from cutoffs import CUTOFF_DICT
 
 
 # ------------------------------------------------------------

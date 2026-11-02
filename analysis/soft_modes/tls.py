@@ -38,7 +38,7 @@
  
 import numpy as np
  
-from config import CUTOFF_DICT
+from cutoffs import CUTOFF_DICT
  
  
 # ------------------------------------------------------------

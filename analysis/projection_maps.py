@@ -25,7 +25,8 @@ from graph.defects import (
     get_connected_components,   
 )
 from visualization.plot import plot_map, plot_cross_correlation
-from config import VOXEL_EDGE, GRAPH_CUTOFF_DICT, DEFECT_THRESHOLD
+from config import VOXEL_EDGE, DEFECT_THRESHOLD
+from cutoffs import GRAPH_CUTOFF_DICT
 
 
 # ------------------------------------------------------------

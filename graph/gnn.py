@@ -131,37 +131,3 @@ def train(model, dataset, epochs=GNN_EPOCHS, lr=GNN_LR,
             optimizer.step()
             total_loss += loss.item()
         print(f"Epoch {epoch:3d}  loss={total_loss:.4f}")
-
-
-# ------------------------------------------------------------
-# Main
-# ------------------------------------------------------------
-
-if __name__ == "__main__":
-    from data_io.trajectory import load_trajectory
-    from config import TRAJECTORY_FILE
-    import matplotlib.pyplot as plt
-
-    trajectory = load_trajectory(TRAJECTORY_FILE)
-    print(f"Loaded {len(trajectory)} frames")
-
-    dataset = build_dataset(trajectory)
-    print(f"Dataset size: {len(dataset)}")
-
-    model = SimpleGNN()
-    train(model, dataset)
-
-    # --- evaluate on first graph ---
-    model.eval()
-    data = dataset[0]
-    with torch.no_grad():
-        pred = model(data)
-
-    err = (pred - data.y).norm(dim=1)
-    print(f"Mean displacement error: {err.mean():.4f} Å")
-
-    plt.hist(err.numpy(), bins=50)
-    plt.xlabel("Displacement error (Å)")
-    plt.ylabel("Count")
-    plt.title("Prediction Error Distribution")
-    plt.show()

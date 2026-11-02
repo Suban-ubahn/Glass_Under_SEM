@@ -97,16 +97,3 @@ def atoms_to_pyg(atoms, cutoff=CUTOFF_DICT):
 def trajectory_to_graphs(trajectory, cutoff=CUTOFF_DICT):
     """Convert a full trajectory (list of Atoms) to a list of PyG Data objects."""
     return [atoms_to_pyg(atoms, cutoff) for atoms in trajectory]
-
-
-# ------------------------------------------------------------
-# Main
-# ------------------------------------------------------------
-
-if __name__ == "__main__":
-    from data_io.trajectory import load_trajectory
-    from config import TRAJECTORY_FILE
-
-    trajectory = load_trajectory(TRAJECTORY_FILE)
-    graphs     = trajectory_to_graphs(trajectory)
-    print("Example graph:", graphs[0])

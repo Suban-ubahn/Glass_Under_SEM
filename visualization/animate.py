@@ -1292,19 +1292,3 @@ def animate_d2min_holes_overlay_3d(
     ani.save(save_path, fps=12, dpi=150)
     print(f"Saved: {save_path}")
     plt.close(fig)
-
-# ------------------------------------------------------------
-# Main — run all three animations
-# ------------------------------------------------------------
-
-if __name__ == "__main__":
-    from data_io.trajectory import load_trajectory
-    from config import TRAJECTORY_FILE
-
-    trajectory = load_trajectory(TRAJECTORY_FILE)
-
-    # animate_holes_KDTree(trajectory, save_path="holes_3d.mp4")
-    # animate_holes_fft(trajectory, save_path=None)
-    # animate_defects(trajectory, save_path=None)
-
-    print("Done.")

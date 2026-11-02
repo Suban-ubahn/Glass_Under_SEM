@@ -9,6 +9,8 @@ import matplotlib.cm as cm
 import inspect
 from scipy.signal import savgol_filter
 from utils import get_output_dir
+from config import VOXEL_EDGE
+from config import R_CUT_VOID
 OUTPUT_DIR = get_output_dir()
 
 
@@ -1158,3 +1160,82 @@ def plot_mode_amplitude_grid(diag, ncols=4, bins=None, show_time_series=True, sa
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {save_path}")
+
+
+def visualize_holes_3d(atoms, void_grid, labeled, num_features,
+                       spacing=VOXEL_EDGE, max_holes=5,
+                       save_path=None):
+    """
+    Scatter plot of atoms (grey) overlaid with the largest
+    detected hole regions (coloured).
+    """
+    from holes.kdtree import get_grid_coords
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "largest_holes_3d.png")
+    X, Y, Z = get_grid_coords(atoms, spacing)
+
+    fig = plt.figure()
+    ax  = fig.add_subplot(111, projection="3d")
+
+    pos = atoms.positions
+    ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
+               s=1, alpha=0.1, color="gray", label="Atoms")
+
+    hole_sizes = [
+        (i, np.sum(labeled == i))
+        for i in range(1, num_features + 1)
+    ]
+    hole_sizes.sort(key=lambda x: x[1], reverse=True)
+
+    for idx, (hole_id, size) in enumerate(hole_sizes[:max_holes]):
+        mask = (labeled == hole_id)
+        ax.scatter(X[mask], Y[mask], Z[mask],
+                   s=5, label=f"Hole {idx} (size={size})")
+
+    ax.set_xlabel("X (Å)"); ax.set_ylabel("Y (Å)"); ax.set_zlabel("Z (Å)")
+    ax.legend()
+    plt.title("Largest Holes (voxel representation)")
+    plt.savefig(save_path, dpi=300)
+    plt.show()
+
+
+def plot_distribution(volumes, r_cut=R_CUT_VOID, spacing=VOXEL_EDGE,
+                      save_path=None):
+    all_v = np.concatenate(volumes)
+    plt.hist(all_v, bins=50)
+    plt.xlabel("Hole Volume (Å³)")
+    plt.ylabel("Count")
+    plt.title("Hole Size Distribution")
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, f"hole_distribution_cutoff{r_cut}Å_spacing{spacing}Å.png")
+    plt.savefig(save_path, dpi=300)
+    plt.show()
+
+
+def plot_degree_by_element(graphs, max_frames=10,
+                            save_path=None):
+    from graph.defects import compute_degrees
+    import matplotlib.pyplot as plt
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "degree_distribution_by_element.png")
+    deg_Zr, deg_Cu = [], []
+    for g in graphs[:max_frames]:
+        deg = compute_degrees(g)
+        Z   = g.x.view(-1)
+        deg_Zr.append(deg[Z == 40].numpy())
+        deg_Cu.append(deg[Z == 29].numpy())
+
+    deg_Zr = np.concatenate(deg_Zr)
+    deg_Cu = np.concatenate(deg_Cu)
+
+    plt.figure()
+    plt.hist(deg_Zr, bins=40, alpha=0.6, label="Zr")
+    plt.hist(deg_Cu, bins=40, alpha=0.6, label="Cu")
+    plt.xlabel("Coordination number (degree)")
+    plt.ylabel("Count")
+    plt.legend()
+    plt.title("Degree Distribution by Element")
+    plt.savefig(save_path, dpi=300)
+    plt.show()
+
+    return deg_Zr, deg_Cu

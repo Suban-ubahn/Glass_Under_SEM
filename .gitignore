@@ -26,3 +26,7 @@ diffraction/ptycho_output/params.pkl
 diffraction/ptycho_output/reconstruction.nxs
 *:Zone.Identifier
 .cutoff_cache.json
+data/
+slurm_*.out
+slurm_*.err
+config.py.bak

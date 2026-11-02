@@ -17,8 +17,8 @@ import h5py
 import json
 from config import BEAM_ENERGY_KV, CONVERGENCE_SEMIANGLE_MRAD, SAMPLING_FACTOR
 
-ZARR_PATH = "diffraction/4d_stem.zarr"
-H5_PATH   = "diffraction/4d_stem.h5"
+ZARR_PATH = "outputs/diffraction/4d_stem.zarr"
+H5_PATH   = "outputs/diffraction/4d_stem.h5"
 
 
 if __name__ == "__main__":
@@ -54,6 +54,6 @@ if __name__ == "__main__":
         "kx"          : kx,
         "ky"          : ky,
     }
-    with open("diffraction/scan_metadata.json", "w") as f:
+    with open("outputs/diffraction/scan_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
-    print("Saved: diffraction/scan_metadata.json")
+    print("Saved: outputs/diffraction/scan_metadata.json")

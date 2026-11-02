@@ -9,8 +9,8 @@
 #   conda activate glass_sem_env
 #   python analysis/pypty_comparison.py
 #
-# Requires: diffraction/ptycho_output/{co.npy,params.pkl}
-#           diffraction/scan_metadata.json
+# Requires: outputs/diffraction/ptycho_output/{co.npy,params.pkl}
+#           outputs/diffraction/scan_metadata.json
 # =============================================================
 
 import os
@@ -28,7 +28,7 @@ from visualization.plot import plot_pypty_reconstruction, plot_pypty_vs_ground_t
 from utils import get_output_dir
 OUTPUT_DIR = get_output_dir()
 
-CHECKPOINT_DIR = "diffraction/ptycho_output"
+CHECKPOINT_DIR = "outputs/diffraction/ptycho_output"
 
 
 def load_reconstruction():

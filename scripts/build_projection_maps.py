@@ -16,6 +16,7 @@ from analysis.projection_maps import (
     plot_cross_correlation,
 )
 from visualization.plot import plot_map
+import os
 import numpy as np
 
 if __name__ == "__main__":
@@ -25,8 +26,9 @@ if __name__ == "__main__":
 
     cumulative_holes, cumulative_clusters = build_cumulative_maps(trajectory)
 
-    np.save("analysis/cumulative_hole_map.npy", cumulative_holes)
-    np.save("analysis/cumulative_cluster_map.npy", cumulative_clusters)
+    os.makedirs("outputs/projection_maps", exist_ok=True)
+    np.save("outputs/projection_maps/cumulative_hole_map.npy", cumulative_holes)
+    np.save("outputs/projection_maps/cumulative_cluster_map.npy", cumulative_clusters)
 
     plot_map(
         cumulative_holes, "Time-Integrated Hole Activity",

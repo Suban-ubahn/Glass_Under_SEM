@@ -83,7 +83,7 @@ def compute_average_structure(trajectory):
 # 4D-STEM simulation
 # ------------------------------------------------------------
 
-def simulate_4d_stem(atoms, output_file="diffraction/4d_stem.zarr"):
+def simulate_4d_stem(atoms, output_file="outputs/diffraction/4d_stem.zarr"):
     """
     Run a full GridScan with a PixelatedDetector over the entire
     sample area and save the resulting 4D dataset.
@@ -204,7 +204,7 @@ def simulate_plane_wave(atoms, save_path=None):
     measurement = measurement.mean(0)
     measurement.compute()
 
-    measurement.to_zarr("diffraction/plane_wave_diffraction.zarr")
+    measurement.to_zarr("outputs/diffraction/plane_wave_diffraction.zarr")
     plot_average_diffraction(measurement, blocked=BLOCKED_VAL, save_path=save_path)
 
 # ========================
@@ -276,13 +276,13 @@ if __name__ == "__main__":
     # a KeyError (TYPE_TO_Z has no entry for 40 or 29, only 1 and 2).
 
     # resolution_test(avg_atoms)
-    diffraction_patterns = simulate_4d_stem(avg_atoms, output_file="diffraction/4d_stem.zarr")
-    diffraction_patterns = abtem.from_zarr("diffraction/4d_stem.zarr")
+    diffraction_patterns = simulate_4d_stem(avg_atoms, output_file="outputs/diffraction/4d_stem.zarr")
+    diffraction_patterns = abtem.from_zarr("outputs/diffraction/4d_stem.zarr")
     
     # plot_average_diffraction(
     #     diffraction_patterns,
     #     blocked=BLOCKED_VAL,
-    #     save_path="diffraction/mean_diffraction.png",
+    #     save_path="outputs/diffraction/mean_diffraction.png",
     # )
     
     plot_diffraction_single_position(

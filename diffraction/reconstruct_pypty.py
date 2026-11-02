@@ -7,8 +7,8 @@
 #   conda activate pypty
 #   python diffraction/reconstruct_pypty.py
 #
-# Requires: diffraction/4d_stem.h5  (from reconstruct_pypty_setup.py)
-# Output:   diffraction/ptycho_output/
+# Requires: outputs/diffraction/4d_stem.h5  (from reconstruct_pypty_setup.py)
+# Output:   outputs/diffraction/ptycho_output/
 # =============================================================
 
 import sys
@@ -29,15 +29,15 @@ from config import (
     SAMPLING_FACTOR,
 )
 
-H5_PATH       = "diffraction/4d_stem.h5"
-OUTPUT_FOLDER = "diffraction/ptycho_output"
+H5_PATH       = "outputs/diffraction/4d_stem.h5"
+OUTPUT_FOLDER = "outputs/diffraction/ptycho_output"
 
 # ------------------------------------------------------------
 # Load metadata
 # ------------------------------------------------------------
 
 def load_scan_metadata():
-    with open("diffraction/scan_metadata.json") as f:
+    with open("outputs/diffraction/scan_metadata.json") as f:
         m = json.load(f)
     print(f"  Scan grid:  {m['scan_x']} × {m['scan_y']} = {m['scan_x']*m['scan_y']} positions")
     print(f"  Scan step:  {m['scan_step_A']:.4f} Å")

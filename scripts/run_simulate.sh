@@ -49,6 +49,6 @@ python diffraction/simulate.py
 echo "== Verifying output =="
 python -c "
 import os
-assert os.path.exists('diffraction/4d_stem.zarr'), 'Expected output diffraction/4d_stem.zarr not found'
+assert os.path.exists('outputs/diffraction/4d_stem.zarr'), 'Expected output outputs/diffraction/4d_stem.zarr not found'
 print('4d_stem.zarr created successfully')
 "

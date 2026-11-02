@@ -12,7 +12,7 @@ from utils import get_cached_partial_cutoffs
 # Trajectory
 # ------------------------------------------------------------
 
-TRAJECTORY_FILE = "trj.zr50cu50_6750_vib"
+TRAJECTORY_FILE = "data/trj.zr50cu50_6750_vib"
 
 # ------------------------------------------------------------
 # Atom types  (LAMMPS type index → atomic number)

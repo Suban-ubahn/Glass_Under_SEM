@@ -139,9 +139,9 @@ def compute_cross_correlation(holes=None, clusters=None):
     from scipy.signal import fftconvolve
 
     if holes is None:
-        holes    = np.load("outputs/projection_maps/cumulative_hole_map.npy")
+        holes    = np.load("outputs/build_projection_maps/cumulative_hole_map.npy")
     if clusters is None:
-        clusters = np.load("outputs/projection_maps/cumulative_cluster_map.npy")
+        clusters = np.load("outputs/build_projection_maps/cumulative_cluster_map.npy")
 
     def normalise(m):
         m = m - m.mean()
@@ -173,9 +173,8 @@ def resample_to_match(source, target):
 
 def compare_abtem_to_projection_maps(
     abtem_image,
-    holes_path    = "outputs/projection_maps/cumulative_hole_map.npy",
-    clusters_path = "outputs/projection_maps/cumulative_cluster_map.npy",
-    save_dir      = "analysis",
+    holes_path    = "outputs/build_projection_maps/cumulative_hole_map.npy",
+    clusters_path = "outputs/build_projection_maps/cumulative_cluster_map.npy",
 ):
     """
     Cross-correlate the abtem virtual detector heatmap with the
@@ -186,7 +185,6 @@ def compare_abtem_to_projection_maps(
     abtem_image : 2D ndarray — virtual BF/DF image from
                   plot_virtual_detector_heatmap (first return value)
     holes_path, clusters_path : paths to the saved .npy maps
-    save_dir    : folder for output plots
     """
     from scipy.signal import fftconvolve
 

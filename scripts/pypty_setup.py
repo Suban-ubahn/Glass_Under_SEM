@@ -11,17 +11,21 @@
 #   python scripts/pypty_setup.py
 # =============================================================
 
+import os
 import numpy as np
 import abtem
 import h5py
 import json
 from config import BEAM_ENERGY_KV, CONVERGENCE_SEMIANGLE_MRAD, SAMPLING_FACTOR
 
-ZARR_PATH = "outputs/diffraction/4d_stem.zarr"
-H5_PATH   = "outputs/diffraction/4d_stem.h5"
+OUT_DIR   = "outputs/pypty_setup"                      # everything this script writes
+ZARR_PATH = "outputs/simulate_4dstem/4d_stem.zarr"     # written by scripts/simulate_4dstem.py
+H5_PATH   = f"{OUT_DIR}/4d_stem.h5"
+META_PATH = f"{OUT_DIR}/scan_metadata.json"
 
 
 if __name__ == "__main__":
+    os.makedirs(OUT_DIR, exist_ok=True)
     print("Loading zarr dataset...")
     dp = abtem.from_zarr(ZARR_PATH)
     dp.compute()
@@ -54,6 +58,6 @@ if __name__ == "__main__":
         "kx"          : kx,
         "ky"          : ky,
     }
-    with open("outputs/diffraction/scan_metadata.json", "w") as f:
+    with open(META_PATH, "w") as f:
         json.dump(metadata, f, indent=2)
-    print("Saved: outputs/diffraction/scan_metadata.json")
+    print(f"Saved: {META_PATH}")

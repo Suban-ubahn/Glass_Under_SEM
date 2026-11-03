@@ -17,7 +17,6 @@ source "$HOME/miniconda3/etc/profile.d/conda.sh"
 conda activate glass_sem_env
 
 cd "$SLURM_SUBMIT_DIR"
-mkdir -p outputs/diffraction      # h5py / json writers don't create parent dirs
 
 python -c "
 import config
@@ -32,6 +31,6 @@ python scripts/simulate_4dstem.py
 echo "== Verifying output =="
 python -c "
 import os
-assert os.path.exists('outputs/diffraction/4d_stem.zarr'), 'Expected output outputs/diffraction/4d_stem.zarr not found'
+assert os.path.exists('outputs/simulate_4dstem/4d_stem.zarr'), 'Expected output outputs/simulate_4dstem/4d_stem.zarr not found'
 print('4d_stem.zarr created successfully')
 "

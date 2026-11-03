@@ -83,7 +83,7 @@ def compute_average_structure(trajectory):
 # 4D-STEM simulation
 # ------------------------------------------------------------
 
-def simulate_4d_stem(atoms, output_file="outputs/diffraction/4d_stem.zarr"):
+def simulate_4d_stem(atoms, output_file=None):
     """
     Run a full GridScan with a PixelatedDetector over the entire
     sample area and save the resulting 4D dataset.
@@ -95,7 +95,8 @@ def simulate_4d_stem(atoms, output_file="outputs/diffraction/4d_stem.zarr"):
     ----------
     atoms       : ase.Atoms — the structure to simulate (already
                   type-corrected, i.e. real atomic numbers)
-    output_file : str — path for the .zarr output
+    output_file : str — path for the .zarr output (default: 4d_stem.zarr in
+                  outputs/<running script>/, e.g. outputs/simulate_4dstem/)
 
     Returns
     -------
@@ -168,6 +169,9 @@ def simulate_4d_stem(atoms, output_file="outputs/diffraction/4d_stem.zarr"):
     # diffraction_patterns = abtem.stack(diffraction_patterns, ("BF", "MAADF", "HAADF"))
 
     if TO_ZARR:
+      if output_file is None:
+          output_file = os.path.join(OUTPUT_DIR, "4d_stem.zarr")
+      os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
       diffraction_patterns.to_zarr(output_file)
       print(f"Saved 4D dataset to: {output_file}")
     else:
@@ -204,7 +208,7 @@ def simulate_plane_wave(atoms, save_path=None):
     measurement = measurement.mean(0)
     measurement.compute()
 
-    measurement.to_zarr("outputs/diffraction/plane_wave_diffraction.zarr")
+    measurement.to_zarr(os.path.join(OUTPUT_DIR, "plane_wave_diffraction.zarr"))
     plot_average_diffraction(measurement, blocked=BLOCKED_VAL, save_path=save_path)
 
 # ========================

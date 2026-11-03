@@ -8,6 +8,7 @@
 # nothing importing it back, so config.py can safely import from here.
 # =============================================================
 
+import atexit
 import os
 import sys
 import json
@@ -16,6 +17,8 @@ import numpy as np
 from ase.neighborlist import neighbor_list
 
 OUTPUTS_ROOT = "outputs"
+MISC_NAME = "miscellaneous"          # home of output from non-script runs (python -c, REPL, notebooks)
+_made_output_dirs = set()
 
 
 def unwrap_positions(positions, box):
@@ -86,20 +89,48 @@ def compute_displacements(positions, reference=None):
     return positions - reference[None, :, :], reference
 
 
+def _default_output_name():
+    """
+    Folder name under outputs/ for the program that is running: the stem of the
+    script (python scripts/run_d2min.py -> "run_d2min").
+
+    Anything that is not a .py script -- `python -c ...`, `python -` (heredoc),
+    a REPL, a Jupyter kernel -- has no script name, so its files go to
+    outputs/miscellaneous/ instead of a meaningless "outputs/-c/".
+    Shell scripts that feed python through a heredoc can name their folder
+    explicitly:  export GLASS_OUTPUT_NAME=<name>
+    """
+    forced = os.environ.get("GLASS_OUTPUT_NAME")
+    if forced:
+        return forced
+    argv0 = sys.argv[0] if sys.argv else ""
+    stem, ext = os.path.splitext(os.path.basename(argv0))
+    if ext == ".py" and stem and not stem.startswith("ipykernel"):
+        return stem
+    return MISC_NAME
+
+
+def _remove_if_empty(path):
+    try:
+        os.rmdir(path)          # only succeeds when nothing was written into it
+    except OSError:
+        pass
+
+
 def get_output_dir(name=None):
     """
-    Return outputs/<name>/, creating it if it doesn't exist.
-
-    If `name` is omitted, it's inferred from the currently running
-    script's filename — e.g. `python analysis/pypty_comparison.py`
-    resolves to outputs/pypty_comparison/. Pass `name` explicitly to
-    override (useful when called from a notebook or REPL, where
-    sys.argv[0] isn't meaningful).
+    Return outputs/<name>/, creating it if it doesn't exist. Convention: every
+    script writes only into outputs/<its own file name>/ -- see
+    _default_output_name(). Folders that stay empty are removed at exit, so
+    merely importing a module never leaves an empty folder behind.
     """
     if name is None:
-        name = os.path.splitext(os.path.basename(sys.argv[0]))[0]
+        name = _default_output_name()
     path = os.path.join(OUTPUTS_ROOT, name)
     os.makedirs(path, exist_ok=True)
+    if path not in _made_output_dirs:
+        _made_output_dirs.add(path)
+        atexit.register(_remove_if_empty, path)
     return path
 
 

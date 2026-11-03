@@ -16,7 +16,6 @@ source "$SLURM_SUBMIT_DIR/slurm/_gpu_guard.sh"   # submit from the project root
 source "$HOME/miniconda3/etc/profile.d/conda.sh"
 
 cd "$SLURM_SUBMIT_DIR"
-mkdir -p outputs/diffraction      # h5py / json writers don't create parent dirs
 
 echo "== Step 1: zarr -> h5 setup (glass_sem_env) =="
 conda activate glass_sem_env

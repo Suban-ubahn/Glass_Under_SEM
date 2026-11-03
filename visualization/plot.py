@@ -55,8 +55,10 @@ def plot_cross_correlation(xcorr):
 
 def plot_average_diffraction(diffraction_patterns, 
                              blocked=True,
-                     save_path="outputs/diffraction/diffraction.png"):
+                     save_path=None):
     
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "diffraction.png")
     if diffraction_patterns.array.ndim == 4:
         mean_dp = diffraction_patterns.mean(axis=(0, 1))
         mean_dp.compute()
@@ -89,7 +91,7 @@ def plot_diffraction_single_position(
     diffraction_patterns,
     blocked=True,
     scan_position=None,
-    save_path="outputs/diffraction/diffraction.png",
+    save_path=None,
 ):
     """
     Plot either:
@@ -108,6 +110,8 @@ def plot_diffraction_single_position(
         Output image path.
     """
 
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "diffraction.png")
     measurement = diffraction_patterns
 
     if measurement.array.ndim == 4:
@@ -196,7 +200,7 @@ def plot_virtual_detector_heatmap(
     log_scale=False,
     normalize=True,
     title="Virtual Detector Heatmap",
-    save_path="outputs/diffraction/virtual_detector_heatmap.png",
+    save_path=None,
 ):
     """
     Combine all scan-position diffraction patterns into one 2D heatmap.
@@ -248,6 +252,8 @@ def plot_virtual_detector_heatmap(
     """
 
     # Ensure the abTEM calculation has been evaluated.
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "virtual_detector_heatmap.png")
     if hasattr(diffraction_patterns, "compute"):
         diffraction_patterns.compute()
 
@@ -390,7 +396,7 @@ def plot_detector_mask(
         "detector_mask",
     )
 
-    save_path = f"outputs/diffraction/virtual_{mask_name}.png"
+    save_path = os.path.join(OUTPUT_DIR, f"virtual_{mask_name}.png")
 
     plt.figure(figsize=(6, 6))
     plt.imshow(
@@ -457,10 +463,12 @@ def plot_pypty_vs_ground_truth(reconstructed, ground_truth, pearson_r, output_pa
     return fig
 
 def plot_pair_correlation(r, g_r, cutoff_r=None, peak_r=None,
-                           save_path="outputs/dynamics/pair_correlation.png"):
+                           save_path=None):
     """
     Plot g(r) with the detected first peak and neighbor cutoff marked.
     """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "pair_correlation.png")
     plt.figure(figsize=(7, 4))
     plt.plot(r, g_r, color="black", linewidth=1.2)
     if peak_r is not None:
@@ -479,12 +487,14 @@ def plot_pair_correlation(r, g_r, cutoff_r=None, peak_r=None,
     plt.close()
     print(f"Saved: {save_path}")
 
-def plot_d2min_histogram(d2min, save_path="outputs/dynamics/d2min_histogram.png"):
+def plot_d2min_histogram(d2min, save_path=None):
     """
     Histogram of D^2_min values across all atoms (log-y, since the
     distribution is typically heavy-tailed: most atoms sit near the
     bulk value, with a minority showing much larger non-affine motion).
     """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "d2min_histogram.png")
     valid = d2min[~np.isnan(d2min)]
     plt.figure(figsize=(7, 4))
     plt.hist(valid, bins=80, color="steelblue", edgecolor="none")
@@ -501,12 +511,14 @@ def plot_d2min_histogram(d2min, save_path="outputs/dynamics/d2min_histogram.png"
     plt.close()
     print(f"Saved: {save_path}")
 
-def plot_d2min_map(atoms_ref, d2min, save_path="outputs/dynamics/d2min_map.png"):
+def plot_d2min_map(atoms_ref, d2min, save_path=None):
     """
     2D (x-y) scatter of atoms, colored by D^2_min — a real-space map
     of where non-affine (flow-unit-like) activity is concentrated,
     integrated over the whole z-thickness of the cell.
     """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "d2min_map.png")
     pos = atoms_ref.positions
     plt.figure(figsize=(7, 6))
     sc = plt.scatter(pos[:, 0], pos[:, 1], c=d2min, cmap="inferno",
@@ -522,7 +534,7 @@ def plot_d2min_map(atoms_ref, d2min, save_path="outputs/dynamics/d2min_map.png")
     plt.close()
     print(f"Saved: {save_path}")
 
-def plot_d2min_map_3d(atoms_ref, d2min, save_path="outputs/dynamics/d2min_map_3d.png",
+def plot_d2min_map_3d(atoms_ref, d2min, save_path=None,
                        elev=20, azim=45):
     """
     3D (x-y-z) scatter of atoms, colored by D^2_min. Unlike
@@ -532,6 +544,8 @@ def plot_d2min_map_3d(atoms_ref, d2min, save_path="outputs/dynamics/d2min_map_3d
     different elev/azim to check for localization the 2D projection
     might be washing out.
     """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "d2min_map_3d.png")
     pos = atoms_ref.positions
     fig = plt.figure(figsize=(8, 7))
     ax = fig.add_subplot(111, projection="3d")
@@ -815,7 +829,7 @@ def plot_mode_atom_distribution_by_element(eigenvectors, elements, soft_mode_mas
 
 
 def plot_softness_map(atoms_ref, softness, atom_indices=None,
-                       save_path="outputs/soft_modes/softness_map.png", title="Soft-Spot Map"):
+                       save_path=None, title="Soft-Spot Map"):
     """
     Flat 2D (x-y) PROJECTION of atoms colored by softness score — same
     layout as plot_d2min_map. This is a projection, not a true 3D
@@ -860,7 +874,7 @@ def plot_softness_map(atoms_ref, softness, atom_indices=None,
     print(f"Saved: {save_path}")
 
 def plot_mode_amplitude_distribution(a_n, gmm_fit=None, label="mode amplitude",
-                                      save_path="outputs/soft_modes/amplitude_distribution.png"):
+                                      save_path=None):
     """
     Histogram of P(a_n) for a single mode/cage-coordinate amplitude
     time series, with the fitted single- and two-Gaussian models
@@ -902,7 +916,7 @@ def plot_mode_amplitude_distribution(a_n, gmm_fit=None, label="mode amplitude",
 
 
 def plot_roc_curve(fpr, tpr, auc, title="Predicting D²_min rearrangement",
-                    save_path="outputs/soft_modes/roc_curve.png"):
+                    save_path=None):
     """
     ROC curve for a score (softness or TLS-ness) predicting a later
     D^2_min rearrangement event — see
@@ -926,7 +940,7 @@ def plot_roc_curve(fpr, tpr, auc, title="Predicting D²_min rearrangement",
     print(f"Saved: {save_path}")
 
 
-def plot_soft_tls_scatter(softness, tls_score, save_path="outputs/soft_modes/soft_vs_tls.png"):
+def plot_soft_tls_scatter(softness, tls_score, save_path=None):
     """
     Two-panel visualization of
     analysis.soft_spot_tls_dmin_comparison.compare_soft_tls().

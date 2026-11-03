@@ -18,6 +18,9 @@ from analysis.projection_maps import (
 from visualization.plot import plot_map
 import os
 import numpy as np
+from utils import get_output_dir
+
+OUTPUT_DIR = get_output_dir()      # outputs/build_projection_maps/
 
 if __name__ == "__main__":
     print("Loading trajectory...")
@@ -26,9 +29,8 @@ if __name__ == "__main__":
 
     cumulative_holes, cumulative_clusters = build_cumulative_maps(trajectory)
 
-    os.makedirs("outputs/projection_maps", exist_ok=True)
-    np.save("outputs/projection_maps/cumulative_hole_map.npy", cumulative_holes)
-    np.save("outputs/projection_maps/cumulative_cluster_map.npy", cumulative_clusters)
+    np.save(os.path.join(OUTPUT_DIR, "cumulative_hole_map.npy"), cumulative_holes)
+    np.save(os.path.join(OUTPUT_DIR, "cumulative_cluster_map.npy"), cumulative_clusters)
 
     plot_map(
         cumulative_holes, "Time-Integrated Hole Activity",

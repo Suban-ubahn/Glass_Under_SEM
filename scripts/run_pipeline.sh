@@ -16,7 +16,6 @@
 # =============================================================
 set -e
 cd "$(dirname "$0")/.."          # always run from the project root
-mkdir -p outputs/diffraction
 
 SKIP_DIFFRACTION=false
 SKIP_ANIMATIONS=false

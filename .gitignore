@@ -3,6 +3,9 @@ scratch/
 trajectories/
 soft_mode_analysis.ipynb
 
+cleanup_setup.sh
+outputs_cleanup.sh
+
 # Python
 __pycache__/
 *.pyc

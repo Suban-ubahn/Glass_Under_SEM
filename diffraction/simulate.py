@@ -221,7 +221,6 @@ def resolution_test(atoms):
     one diffraction plot per resolution level to compare quality
     without running the full 4D-STEM scan.
     """
-    from visualization.plot import plot_diffraction
 
     configs = [
         {"gpts": 128, "slice_thickness": 4, "label": "low"},

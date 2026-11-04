@@ -23,7 +23,7 @@ from scipy.stats import pearsonr
 
 from config import TRAJECTORY_FILE
 from data_io.trajectory import load_trajectory
-from diffraction.simulate import compute_average_structure, correct_atom_types
+from diffraction.simulate import compute_average_structure
 from visualization.plot import plot_pypty_reconstruction, plot_pypty_vs_ground_truth, plot_cross_correlation
 from utils import get_output_dir
 OUTPUT_DIR = get_output_dir()
@@ -42,7 +42,6 @@ def load_reconstruction():
 def build_ground_truth_potential(pixel_size_x_A, pixel_size_y_A):
     trajectory = load_trajectory(TRAJECTORY_FILE)
     avg_atoms = compute_average_structure(trajectory)
-    avg_atoms = correct_atom_types(avg_atoms)
 
     potential = abtem.Potential(avg_atoms, sampling=(pixel_size_x_A, pixel_size_y_A))
     projected = potential.build().compute().array.sum(axis=0)

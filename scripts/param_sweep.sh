@@ -48,17 +48,15 @@ from data_io.trajectory import load_trajectory
 from config import TRAJECTORY_FILE
 from diffraction.simulate import (
     compute_average_structure,
-    correct_atom_types,
     simulate_4d_stem,
 )
-from visualization.plot import plot_diffraction
+from visualization.plot import plot_average_diffraction
 
 trajectory = load_trajectory(TRAJECTORY_FILE)
 atoms      = compute_average_structure(trajectory)
-atoms      = correct_atom_types(atoms)
 
 dp = simulate_4d_stem(atoms, output_file=None)
-plot_diffraction(
+plot_average_diffraction(
     dp,
     blocked   = False,
     save_path = "$folder/${param}_${value}.png",

@@ -1,593 +1,276 @@
 # Glass Under SEM
 
-Computational pipeline for studying the structure and dynamics of amorphous materials under simulated electron-microscopy conditions.
+Computational pipeline for studying the structure and dynamics of a Zr–Cu metallic glass under simulated electron-microscopy conditions.
 
-The project combines **LAMMPS molecular-dynamics simulations**, **free-volume analysis**, **graph-based structural analysis**, **4D-STEM diffraction simulations**, and **ptychographic reconstruction** to investigate the relationship between structural defects and experimentally observable electron-scattering signals.
+The project combines **LAMMPS molecular-dynamics trajectories**, **free-volume (hole) analysis**, **graph-based structural defects**, **non-affine dynamics (D²min)**, **soft-mode / two-level-system (TLS) analysis**, **4D-STEM diffraction simulation** and **ptychographic reconstruction**, to ask how structural defects and dynamics relate to what an electron microscope can actually observe.
 
 ---
 
 ## Overview
 
-The main input is a LAMMPS molecular-dynamics trajectory of a Zr–Cu metallic glass.
-
-The analysis is organized into three main branches:
-
 ```text
-                         LAMMPS trajectory
-                                │
-              ┌─────────────────┼─────────────────┐
-              │                 │                 │
-              ▼                 ▼                 ▼
-        Free-volume          Structural        4D-STEM
-          analysis            defects          simulation
-              │                 │                 │
-              │                 │                 ▼
-              │                 │          Ptychographic
-              │                 │          reconstruction
-              │                 │                 │
-              └─────────────────┴─────────────────┘
-                                │
-                                ▼
-                     Projection & correlation
-                                │
-                                ▼
-                     Comparison with structure
+                         LAMMPS trajectory  (data/)
+                                  │
+      ┌───────────────┬───────────┼───────────────┬────────────────┐
+      ▼               ▼           ▼               ▼                ▼
+ Free volume     Structural   Non-affine      Soft modes /      4D-STEM
+ (holes)         defects      dynamics        TLS               simulation
+      │               │       (D²min)              │                │
+      └───────┬───────┘           │                │                ▼
+              ▼                   │                │          Ptychographic
+     Projection maps &            │                │          reconstruction
+     cross-correlation            │                │                │
+              │                   │                │                │
+              └───────────────────┴───────┬────────┴────────────────┘
+                                          ▼
+                       Comparisons (D²min vs defects / holes / soft spots,
+                                    reconstruction vs ground truth)
 ```
-
-The central scientific question is how **free volume and local structural defects** are related, and whether these structural features can be identified from simulated electron-microscopy measurements.
 
 ---
 
 ## Quick start
 
-### 1. Clone the repository
-
 ```bash
 git clone https://github.com/Suban-ubahn/Glass_Under_SEM.git
 cd Glass_Under_SEM
-```
 
-### 2. Create the Conda environment
-
-```bash
 conda create -n glass_sem_env python=3.11
 conda activate glass_sem_env
 pip install -r requirements.txt
-pip install -e .
+pip install -e .          # (or: bash setup_env.sh, which does all of the above)
 ```
 
-The editable installation (`pip install -e .`) is recommended because it allows modules such as `config`, `holes`, and `analysis` to be imported from anywhere.
-
-### 3. Configure the simulation
-
-Before running the pipeline, check `config.py`.
-
-The most important parameters are:
-
-| Parameter                    | Description                                                    |
-| ---------------------------- | -------------------------------------------------------------- |
-| `TRAJECTORY_FILE`            | Path to the LAMMPS trajectory                                  |
-| `VOXEL_EDGE`                 | Grid resolution used for free-volume detection (Å)             |
-| `R_CUT_VOID`                 | Void threshold radius for KDTree detection (Å)                 |
-| `CUTOFF`                     | Neighbour/bond cutoff used for graph construction (Å)          |
-| `DEFECT_THRESHOLD`           | Coordination deficit required to classify an atom as defective |
-| `CONVERGENCE_SEMIANGLE_MRAD` | Electron probe convergence semi-angle                          |
-| `BEAM_ENERGY_KV`             | Electron beam energy                                           |
-
-All physical parameters shared between modules should be changed in `config.py` rather than inside individual scripts.
-
----
-
-# Project structure
-
-```text
-Glass_Under_SEM/
-│
-├── config.py
-├── utils.py
-│
-├── data_io/
-│   └── trajectory.py
-│
-├── holes/
-│   ├── core.py
-│   └── fft.py
-│
-├── graph/
-│   ├── build.py
-│   ├── defects.py
-│   └── gnn.py
-│
-├── diffraction/
-│   ├── simulate.py
-│   ├── reconstruct_pypty_setup.py
-│   ├── reconstruct_pypty.py
-│   └── ptycho_output/
-│
-├── analysis/
-│   ├── projection_maps.py
-│   └── pypty_comparison.py
-│
-├── visualization/
-│   ├── animate.py
-│   └── plot.py
-│
-├── scripts/
-│   ├── run_simulate.sh
-│   ├── run_pypty.sh
-│   └── param_sweep.sh
-│
-├── outputs/
-│
-└── scratch/
-```
-
-### Core configuration
-
-* **`config.py`** — shared physical and numerical parameters.
-* **`utils.py`** — shared infrastructure, including output-directory handling.
+The editable install only puts the project root on `sys.path`, so that every script can `import config`, `import utils` and the packages (`holes`, `graph`, `analysis`, …) no matter where it is started from. Re-run it after pulling if a new top-level module appeared.
 
 ### Input data
 
-* **`data_io/trajectory.py`** — loads the LAMMPS trajectory and provides a common interface to the rest of the pipeline.
-
-### Free-volume analysis
-
-* **`holes/core.py`** — KDTree/voxel-based free-volume detection.
-* **`holes/fft.py`** — FFT-convolution approach for constructing an occupancy/free-volume field.
-
-### Structural defect analysis
-
-* **`graph/build.py`** — converts atomic coordinates into PyTorch Geometric graphs.
-* **`graph/defects.py`** — detects, clusters, and tracks coordination defects.
-* **`graph/gnn.py`** — graph neural network for predicting atomic displacements.
-
-### Electron-microscopy simulation
-
-* **`diffraction/simulate.py`** — 4D-STEM and plane-wave diffraction simulations using `abTEM`.
-* **`diffraction/reconstruct_pypty_setup.py`** — converts the 4D-STEM dataset to the format required by `pypty`.
-* **`diffraction/reconstruct_pypty.py`** — performs the iterative ptychographic reconstruction.
-* **`diffraction/ptycho_output/`** — checkpoints and reconstruction state generated by `pypty`.
-
-### Analysis
-
-* **`analysis/projection_maps.py`** — creates time-integrated projection maps and calculates spatial cross-correlations.
-* **`analysis/pypty_comparison.py`** — compares the ptychographic reconstruction with the original MD structure.
-
-### Visualization
-
-* **`visualization/plot.py`** — reusable static plotting functions.
-* **`visualization/animate.py`** — 3D animations of holes and defect clusters.
-
-### HPC scripts
-
-The scripts in `scripts/` are intended for SLURM-based cluster execution.
-
-### Generated files
-
-`outputs/` contains automatically generated plots, heatmaps, and animations. It is gitignored and should not be committed.
-
-`scratch/` contains exploratory code that is not part of the main pipeline. It is also gitignored.
-
----
-
-# Analysis pipeline
-
-## 1. Free-volume / hole detection
-
-Two complementary approaches are implemented in `holes/`.
-
-### KDTree / voxel method
-
-```bash
-python holes/core.py
-```
-
-`core.py` constructs a voxel grid and determines which voxels are sufficiently far from every atom to be considered part of a void. Connected void regions are then identified.
-
-This method is fast and provides a direct geometric interpretation of free volume.
-
-### FFT-convolution method
-
-`holes/fft.py` uses element-specific spherical kernels and FFT convolution to construct an occupancy field. Peaks in the inverted field are used to identify candidate holes.
-
-The two approaches provide complementary descriptions of the same underlying free-volume structure.
-
----
-
-# 2. Structural defect detection
-
-Run:
-
-```bash
-python graph/defects.py
-```
-
-Atoms are represented as nodes in a graph, with edges connecting neighbouring atoms within `CUTOFF`.
-
-For each atom, its coordination number is compared with the mean coordination of atoms of the same element. Atoms whose coordination is sufficiently below the corresponding mean are classified as defects.
-
-Connected defective atoms are grouped into clusters, allowing their spatial distribution and temporal evolution to be studied.
-
-The graph representation also provides the basis for the GNN in `graph/gnn.py`.
-
----
-
-# 3. Projection maps and correlation
-
-Once hole and defect data have been generated, run:
-
-```bash
-python analysis/projection_maps.py
-```
-
-The analysis integrates the three-dimensional structures over time and projects them onto two-dimensional maps.
-
-The resulting maps can be cross-correlated to quantify the spatial relationship between free-volume regions and structural defects.
-
-For example:
-
-```python
-from analysis.projection_maps import (
-    compute_cross_correlation,
-    plot_cross_correlation,
-)
-
-xcorr = compute_cross_correlation()
-plot_cross_correlation(xcorr)
-```
-
----
-
-# 4. 4D-STEM simulation
-
-The 4D-STEM simulation is implemented in:
+The trajectory is **not tracked by git**. Put the LAMMPS dump here (the path is set by `TRAJECTORY_FILE` in `config.py`):
 
 ```text
-diffraction/simulate.py
+data/trj.zr50cu50_6750_vib
 ```
 
-and should normally be run on the cluster:
+### Smoke test
 
 ```bash
-sbatch scripts/run_simulate.sh
+python scripts/run_d2min.py        # quick; writes outputs/run_d2min/
 ```
 
-The simulation uses `abTEM` to perform a `GridScan` with a `PixelatedDetector`.
+### Whole pipeline
 
-The resulting 4D-STEM dataset is stored as:
+```bash
+bash scripts/run_pipeline.sh [--skip-diffraction] [--skip-animations]
+```
+
+---
+
+## Conventions (read this first)
+
+1. **Libraries vs. entry points.** The packages (`holes/`, `graph/`, `analysis/`, `diffraction/`, `visualization/`, `data_io/`) only contain functions. They have no `__main__` blocks. Everything you *run* lives in `scripts/` (and `slurm/` for cluster jobs).
+2. **Computation is separate from plotting.** Computation lives in `analysis/`, `holes/`, `graph/`, `diffraction/`. Every plotting function is in `visualization/plot.py`, animations in `visualization/animate/`.
+3. **Every script writes only to `outputs/<script_name>/`.** `python scripts/run_d2min.py` writes into `outputs/run_d2min/`, nothing else. See [Outputs](#outputs).
+4. **Inputs go in `data/`, generated files in `outputs/`.** Both are gitignored.
+5. **Constants live in `config.py`.** It contains only constants and is cheap to import in any environment (including the `pypty` env). Neighbour cutoffs derived from g(r) are computed in `cutoffs.py`, because importing that module reads the trajectory (cached in `.cutoff_cache.json`).
+
+---
+
+## Project structure
 
 ```text
-diffraction/4d_stem.zarr
+Glass_Under_SEM/
+├── config.py                 constants only (paths, radii, thresholds, simulation parameters)
+├── cutoffs.py                g(r)-derived neighbour cutoffs (CUTOFF_ZRZR, PEAK_ZRCU, …)
+├── utils.py                  shared helpers: output folders, g(r), unwrapping, cutoff cache
+│
+├── data_io/trajectory.py     load_trajectory() – the one place the dump file is read
+│
+├── holes/
+│   ├── kdtree.py             voxel / KDTree free-volume detection
+│   └── fft.py                FFT-convolution occupancy and hole field
+│
+├── graph/
+│   ├── build.py              ASE Atoms → PyTorch-Geometric graph
+│   ├── defects.py            coordination defects, clustering, tracking
+│   └── gnn.py                GNN predicting atomic displacements
+│
+├── analysis/
+│   ├── d2min/                compute.py (Falk–Langer D²min), comparison.py (vs defects / holes)
+│   ├── soft_modes/           modes.py (quasi-harmonic soft modes), tls.py (TLS detection),
+│   │                         source.py, comparison.py, element_stats.py
+│   ├── projection_maps.py    time-integrated hole/defect maps, cross-correlation
+│   └── pypty_comparison.py   reconstruction vs ground-truth projected potential
+│
+├── diffraction/simulate.py   abTEM 4D-STEM / plane-wave simulation
+│
+├── visualization/
+│   ├── plot.py               ALL static plotting functions
+│   └── animate/              holes.py, defects.py, d2min.py, softness.py
+│
+├── scripts/                  every entry point (see the table below)
+├── slurm/                    SLURM batch scripts: run_simulate.sh, run_pypty.sh, _gpu_guard.sh
+│
+├── data/                     input trajectory            (gitignored)
+└── outputs/                  everything generated        (gitignored)
 ```
 
-A complete simulation can take several hours, so it is intended to run as an unattended SLURM job.
+---
 
-To inspect an existing dataset without rerunning the simulation:
+## Scripts and where their results go
+
+| Script | What it does | Output folder |
+| --- | --- | --- |
+| `run_d2min.py` | g(r) cutoffs, D²min histogram and map | `outputs/run_d2min/` |
+| `run_defect_stats.py` | graph defect statistics | `outputs/run_defect_stats/` |
+| `build_projection_maps.py` | cumulative hole / defect maps (`.npy`) + plots + cross-correlation | `outputs/build_projection_maps/` |
+| `view_projection_maps.py` | re-plot the saved maps without recomputing | `outputs/view_projection_maps/` |
+| `run_d2min_defect_comparison.py` | D²min vs defect clusters (plot + overlay animation) | `outputs/run_d2min_defect_comparison/` |
+| `run_d2min_hole_comparison.py` | D²min vs distance to holes (plot + overlay animation) | `outputs/run_d2min_hole_comparison/` |
+| `run_soft_mode_tls_pipeline.py` | soft modes, TLS detection, per-element statistics, plots and animations | `outputs/run_soft_mode_tls_pipeline/` |
+| `run_soft_tls_dmin_comparison.py` | soft spots vs TLS vs D²min | `outputs/run_soft_tls_dmin_comparison/` |
+| `build_holes_defects_animations.py` | hole (KDTree, FFT) and defect-cluster animations | `outputs/build_holes_defects_animations/` |
+| `build_d2min_animations.py` | 2D / 3D D²min animations | `outputs/build_d2min_animations/` |
+| `simulate_4dstem.py` | 4D-STEM simulation + virtual BF/DF images | `outputs/simulate_4dstem/` (`4d_stem.zarr`) |
+| `pypty_setup.py` | zarr → `.h5` for pypty (`glass_sem_env`) | `outputs/pypty_setup/` |
+| `pypty_reconstruct.py` | iterative reconstruction (`pypty` env), resumable | `outputs/pypty_reconstruct/` |
+| `pypty_comparison.py` | reconstruction vs ground truth | `outputs/pypty_comparison/` |
+| `train_gnn.py` | GNN displacement prediction | `outputs/train_gnn/` |
+| `analyze_mass_dependence.py`, `explore_modes_from_covariance.py` | numerical checks of soft-mode theory | `outputs/<script_name>/` |
+| `demo_holes_kdtree.py`, `demo_holes_fft.py`, `demo_graph_build.py`, `demo_soft_modes.py`, `demo_tls_detection.py` | quick demos of one library module | `outputs/<script_name>/` |
+| `param_sweep.sh` | sweep of 4D-STEM simulation parameters | `outputs/param_sweep/` |
+| `run_pipeline.sh` | runs the main stages in order | one folder per stage |
+
+All scripts are run from anywhere inside the project, e.g. `python scripts/run_defect_stats.py`.
+
+---
+
+## Analysis stages
+
+### 1. Free volume (holes)
+
+`holes/kdtree.py` builds a voxel grid, marks voxels farther than `R_CUT_VOID` from every atom as void and labels connected void regions (fast, direct geometric meaning). `holes/fft.py` convolves the atoms with element-specific spherical kernels via FFT and finds peaks in the inverted occupancy field. The two give complementary views of the same free volume. Quick looks: `scripts/demo_holes_kdtree.py`, `scripts/demo_holes_fft.py`.
+
+### 2. Structural defects
+
+`graph/defects.py` turns atoms into a graph (edges within the species-resolved cutoffs from `cutoffs.py`), compares each atom's coordination with the mean of its element and flags atoms that fall sufficiently far below it (`DEFECT_THRESHOLD`, `DEFECT_K` in `config.py`). Connected defective atoms form clusters that can be tracked over time. `python scripts/run_defect_stats.py`.
+
+### 3. Non-affine dynamics (D²min)
+
+`analysis/d2min/compute.py` implements the Falk–Langer local non-affine squared displacement between two frames of a purely thermal trajectory. `python scripts/run_d2min.py`, then the comparisons `run_d2min_defect_comparison.py` / `run_d2min_hole_comparison.py`.
+
+### 4. Projection maps and cross-correlation
+
+`python scripts/build_projection_maps.py` integrates holes and defect clusters over the trajectory, projects them on the xy plane, saves them (`outputs/build_projection_maps/cumulative_*_map.npy`) and cross-correlates them. `scripts/view_projection_maps.py` reloads the saved maps. The abTEM virtual-detector image from step 5 is compared with the same maps by `analysis.projection_maps.compare_abtem_to_projection_maps`.
+
+### 5. Soft modes and TLS
+
+`analysis/soft_modes/` covers the quasi-harmonic soft-mode ("soft spot") analysis, two-level-system (TLS) detection by two independent methods (A: real-space hopping of an atom inside its coordination cage; B: bimodality of the soft modes' amplitude distributions), and their comparison with each other and with D²min. The end-to-end driver is `python scripts/run_soft_mode_tls_pipeline.py`; the thresholds (`N_SOFT_MODES`, `TLS_*`, …) are in `config.py`.
+
+### 6. 4D-STEM simulation
+
+```bash
+python scripts/simulate_4dstem.py          # locally (memory heavy, see the WSL2 note)
+sbatch slurm/run_simulate.sh               # on the cluster
+```
+
+abTEM `GridScan` with a `PixelatedDetector`; the dataset is saved as `outputs/simulate_4dstem/4d_stem.zarr`. To look at an existing dataset without rerunning:
 
 ```python
 import abtem
+from visualization.plot import plot_average_diffraction
 
-from visualization.plot import plot_diffraction
-
-dp = abtem.from_zarr("diffraction/4d_stem.zarr")
-plot_diffraction(dp, blocked=True)
+dp = abtem.from_zarr("outputs/simulate_4dstem/4d_stem.zarr")
+plot_average_diffraction(dp, blocked=True)      # saved to outputs/<your script>/ by default
 ```
 
-### Resolution test
+### 7. Ptychographic reconstruction
 
-`simulate.py` also contains a `resolution_test()` function for comparing low-, medium-, and high-resolution plane-wave simulations.
+```text
+outputs/simulate_4dstem/4d_stem.zarr
+        │  scripts/pypty_setup.py        (glass_sem_env)
+        ▼
+outputs/pypty_setup/4d_stem.h5 + scan_metadata.json
+        │  scripts/pypty_reconstruct.py  (pypty env)
+        ▼
+outputs/pypty_reconstruct/   (co.npy object, cp.npy probe, cg.npy positions, loss.csv, …)
+        │  scripts/pypty_comparison.py   (glass_sem_env)
+        ▼
+outputs/pypty_comparison/    (comparison with the MD ground truth)
+```
 
-This can be used to determine whether numerical resolution is limiting the simulation before committing to a full 4D-STEM calculation.
+Both pypty scripts import only `config`, so they run in the `pypty` env without the editable install. The reconstruction writes a checkpoint every epoch; if the job is killed or hits its time limit, run it again and it resumes from the last saved epoch.
 
 ---
 
-# 5. Ptychographic reconstruction
+## Outputs
 
-Ptychographic reconstruction uses `pypty` and is substantially more computationally expensive than the other analysis steps.
+* Every script writes into `outputs/<script_name>/` (the name of the script file without extension) and nowhere else. The folder is created on demand and removed again when empty.
+* Code that is not a script (`python -c …`, `python -`, a REPL, a notebook) writes to `outputs/miscellaneous/`.
+* A script reads the results of earlier stages from *their* folders (for example `pypty_setup.py` reads `outputs/simulate_4dstem/4d_stem.zarr`).
+* Shell scripts that feed Python through a heredoc (such as `param_sweep.sh`) pick their folder with `export GLASS_OUTPUT_NAME=<name>`.
+* Plot functions default to `save_path=None`, which means "`<OUTPUT_DIR>/<default file name>`". Pass `save_path=` to write somewhere else.
+* `outputs/miscellaneous/` is also the place for old results worth keeping that belong to no script. Any other folder under `outputs/` that does not match a file in `scripts/` is stale and can be deleted.
 
-Run:
-
-```bash
-sbatch scripts/run_pypty.sh
-```
-
-The workflow consists of two stages:
-
-```text
-4d_stem.zarr
-      │
-      ▼
-reconstruct_pypty_setup.py
-      │
-      ▼
-      .h5
-      │
-      ▼
-reconstruct_pypty.py
-      │
-      ▼
-ptychographic reconstruction
-```
-
-The conversion step runs in `glass_sem_env`, while the reconstruction itself uses the separate `pypty` environment.
-
-### Checkpointing
-
-The reconstruction periodically writes checkpoints to:
-
-```text
-diffraction/ptycho_output/
-```
-
-including:
-
-```text
-co.npy
-cp.npy
-cg.npy
-loss.csv
-```
-
-If the SLURM job is terminated or reaches its time limit, resubmitting:
-
-```bash
-sbatch scripts/run_pypty.sh
-```
-
-will resume from the latest saved epoch rather than restarting the reconstruction.
+To add a new analysis: put the computation in the appropriate package, the plotting in `visualization/plot.py`, and write a small entry point `scripts/<name>.py`. Its results will appear in `outputs/<name>/` automatically.
 
 ---
 
-# 6. Comparison with ground truth
+## Running on the cluster
 
-Once a reconstruction is complete:
-
-```bash
-python analysis/pypty_comparison.py
-```
-
-This compares the reconstructed object with the original MD structure used to generate the simulated diffraction data.
-
-The comparison includes reconstructed phase/amplitude, the ground-truth structure, and their difference.
-
----
-
-# Visualization
-
-All reusable plotting functions are located in:
-
-```text
-visualization/plot.py
-```
-
-Important functions include:
-
-```text
-plot_map()
-plot_diffraction()
-plot_cross_correlation()
-plot_pypty_reconstruction()
-plot_pypty_vs_ground_truth()
-```
-
-3D animations are implemented in:
-
-```text
-visualization/animate.py
-```
-
-including:
-
-```text
-animate_holes_KDTree()
-animate_holes_fft()
-animate_defects()
-```
-
-Generated figures and animations are automatically written to:
-
-```text
-outputs/<script_name>/
-```
-
-For example:
-
-```text
-outputs/
-└── pypty_comparison/
-```
-
-The `outputs/` directory is gitignored.
-
----
-
-# Running on the cluster
-
-Long-running calculations should be submitted through SLURM rather than executed directly in an SSH session.
-
-### 4D-STEM
+Long calculations go through SLURM, not a foreground SSH session. **Submit from the project root** (the scripts source `slurm/_gpu_guard.sh` relative to it).
 
 ```bash
-sbatch scripts/run_simulate.sh
-```
-
-### Ptychography
-
-```bash
-sbatch scripts/run_pypty.sh
-```
-
-Check running jobs with:
-
-```bash
+sbatch slurm/run_simulate.sh                               # 4D-STEM simulation
+sbatch --dependency=afterok:<SIMULATE_JOBID> slurm/run_pypty.sh   # pypty setup + reconstruction
 squeue -u $USER
-```
-
-Inspect a submitted job with:
-
-```bash
 scontrol show job <JOBID>
 ```
 
-The SLURM scripts are designed so that the calculations continue running after disconnecting from the cluster.
+`run_pypty.sh` needs the simulation's output, so chain it with `--dependency=afterok`. Both scripts check GPU memory at start-up (`slurm/_gpu_guard.sh`); if the node's GPU is too full they exclude that node and requeue themselves. Logs are written to `slurm_*_<jobid>.out/.err` in the submit directory (gitignored). The reconstruction is expected to run for days, so `run_pypty.sh` uses the `defq` partition (7-day limit).
+
+Do not `git pull` on the cluster while a job is running: the job reads and writes files under `outputs/`.
 
 ---
 
-# WSL2 memory requirement
+## WSL2 memory requirement
 
-The 4D-STEM simulation can require substantial RAM.
-
-If running the project under WSL2, increase the WSL memory allocation if necessary by editing:
-
-```text
-C:\Users\<username>\.wslconfig
-```
-
-For example:
+The 4D-STEM simulation can need a lot of RAM. Under WSL2, raise the allocation in `C:\Users\<username>\.wslconfig`:
 
 ```ini
 [wsl2]
 memory=12GB
 ```
 
-Then restart WSL:
-
-```powershell
-wsl --shutdown
-```
-
-The required memory depends on the simulation parameters and dataset size.
+then run `wsl --shutdown` from PowerShell.
 
 ---
 
-# Physical assumptions
+## Physical assumptions
 
-Several choices in the current implementation are important for interpreting the results.
-
-### Simulation cell thickness
-
-The MD cell is approximately:
-
-```text
-49 × 49 × 49 Å
-```
-
-or roughly 5 nm per side.
-
-This is substantially thinner than a typical TEM lamella. Consequently, the simulated 4D-STEM signal can contain relatively weak diffuse scattering.
-
-The current diffraction workflow can repeat the structure along `z`:
-
-```python
-atoms.repeat((1, 1, 4))
-```
-
-to increase the effective scattering thickness. This assumes periodic repetition of the MD structure.
-
-### Atomic radii
-
-The current unified values are:
-
-```text
-Zr = 1.60 Å
-Cu = 1.28 Å
-```
-
-These values are used consistently across the relevant modules.
-
-If these values are changed, they should be changed in `config.py` rather than individual analysis scripts.
-
-### Defects and free volume
-
-The project treats free-volume regions and coordination defects as related but distinct structural descriptors.
-
-A useful physical picture is that coordination-deficient atoms tend to occur near the boundaries of regions of increased free volume.
-
-The cross-correlation analysis in `analysis/projection_maps.py` is intended to quantify this relationship rather than assume it a priori.
+* **Cell size.** The MD cell is about 49 × 49 × 49 Å (≈ 5 nm), much thinner than a TEM lamella, so the simulated diffuse scattering is weak. The diffraction workflow can repeat the cell along `z` (`atoms.repeat((1, 1, 4))`), which assumes periodicity.
+* **Atomic radii.** Zr = 1.60 Å, Cu = 1.28 Å (`R_ZR`, `R_CU` in `config.py`) – change them there only.
+* **Free volume vs defects.** They are treated as related but distinct descriptors; the cross-correlation analysis is meant to measure their relation, not assume it.
+* **Unwrapped positions.** The LAMMPS dumps re-wrap coordinates into the cell every frame; displacement-based analyses (D²min, soft modes) use `utils.unwrap_positions` to remove periodic jumps.
 
 ---
 
-# Dependencies
+## Dependencies
 
-The main scientific Python dependencies include:
-
-* [ASE](https://wiki.fysik.dtu.dk/ase/)
-* NumPy
-* SciPy
-* Matplotlib
-* PyTorch
-* PyTorch Geometric
-* [abTEM](https://abtem.readthedocs.io/)
-
-The complete dependency list is provided in:
-
-```text
-requirements.txt
-```
-
-The ptychographic reconstruction additionally requires the `pypty` environment.
+ASE, NumPy, SciPy, Matplotlib, PyTorch, PyTorch Geometric, [abTEM](https://abtem.readthedocs.io/), h5py, zarr (full pinned list: `requirements.txt`). Ptychographic reconstruction additionally needs `pypty` (Anton Gladyshev's ptychography library) in its own `pypty` conda environment (installed under `external/pypty`, gitignored).
 
 ---
 
-# Git LFS
+## Reproducibility
 
-Large binary files should not be stored directly in normal Git history.
-
-This repository uses **Git LFS** for large files such as:
-
-```text
-diffraction/ptycho_output/co.npy
-```
-
-If you clone the repository and need to work with LFS-tracked files, install Git LFS and initialize it:
-
-```bash
-git lfs install
-```
-
-Check which files are tracked by LFS with:
-
-```bash
-git lfs ls-files
-```
-
-Do not commit generated output from `outputs/` unless it is intentionally being versioned.
-
----
-
-# Reproducibility
-
-For reproducible results:
-
-1. Use the specified Conda environment.
+1. Use the pinned environment (`requirements.txt`).
 2. Keep the input trajectory unchanged.
-3. Record the values in `config.py`.
-4. Keep simulation parameters under version control.
-5. Avoid modifying generated files manually.
-6. Record the Git commit used for an analysis.
-
-For computationally expensive simulations, the SLURM scripts should be treated as part of the reproducibility configuration because they define the requested computational resources.
+3. Change parameters only in `config.py`, and record its values with the run.
+4. Record the git commit used for an analysis.
+5. Treat the SLURM scripts as part of the configuration; they define the requested resources.
+6. Don't edit generated files by hand; regenerate them.
 
 ---
 
-# Project status
+## Project status
 
-This repository is research code under active development. Some modules are experimental and may change as the analysis develops.
-
-In particular:
-
-* the GNN workflow is under development;
-* simulation parameters may require further validation;
-* ptychographic reconstruction is computationally expensive;
-* some exploratory functionality remains in `scratch/`.
-
-The `scratch/` directory is not required for the main analysis pipeline.
-
----
-
-# License and citation
-
-This project is currently research code associated with the study of metallic glasses and electron microscopy.
-
-A formal license and citation information should be added before distributing the repository as a public research software release.
+Research code under active development. Some modules are experimental (the GNN workflow, soft-mode/TLS thresholds), the simulation parameters need further validation, and exploratory code lives in `scratch/` (gitignored, not part of the pipeline). No licence has been chosen yet; add one and citation information before releasing the code publicly.

@@ -97,7 +97,8 @@ Glass_Under_SEM/
 ├── analysis/
 │   ├── d2min/                compute.py (Falk–Langer D²min), comparison.py (vs defects / holes)
 │   ├── soft_modes/           modes.py (quasi-harmonic soft modes), tls.py (TLS detection),
-│   │                         source.py, comparison.py, element_stats.py
+│   │                         source.py (soft atoms as sources of D²min), comparison.py,
+│   │                         element_stats.py, pca_reliability.py (how far the PCA can be trusted)
 │   ├── projection_maps.py    time-integrated hole/defect maps, cross-correlation
 │   └── pypty_comparison.py   reconstruction vs ground-truth projected potential
 │
@@ -126,7 +127,8 @@ Glass_Under_SEM/
 | `view_projection_maps.py` | re-plot the saved maps without recomputing | `outputs/view_projection_maps/` |
 | `run_d2min_defect_comparison.py` | D²min vs defect clusters (plot + overlay animation) | `outputs/run_d2min_defect_comparison/` |
 | `run_d2min_hole_comparison.py` | D²min vs distance to holes (plot + overlay animation) | `outputs/run_d2min_hole_comparison/` |
-| `run_soft_mode_tls_pipeline.py` | soft modes, TLS detection, per-element statistics, plots and animations | `outputs/run_soft_mode_tls_pipeline/` |
+| `run_soft_mode_tls_pipeline.py` | soft modes (3D and per z-slice), TLS detection (two methods), soft vs TLS vs D²min, per-element statistics, soft atoms as sources of D²min, plots and animations | `outputs/run_soft_mode_tls_pipeline/` |
+| `run_pca_reliability.py` | split-half reliability of the PCA behind the soft modes: eigenvalues and softness map (see [5.1](#51-how-far-can-the-pca-be-trusted)) | `outputs/run_pca_reliability/` |
 | `run_soft_tls_dmin_comparison.py` | soft spots vs TLS vs D²min | `outputs/run_soft_tls_dmin_comparison/` |
 | `build_holes_defects_animations.py` | hole (KDTree, FFT) and defect-cluster animations | `outputs/build_holes_defects_animations/` |
 | `build_d2min_animations.py` | 2D / 3D D²min animations | `outputs/build_d2min_animations/` |
@@ -164,7 +166,34 @@ All scripts are run from anywhere inside the project, e.g. `python scripts/run_d
 
 ### 5. Soft modes and TLS
 
-`analysis/soft_modes/` covers the quasi-harmonic soft-mode ("soft spot") analysis, two-level-system (TLS) detection by two independent methods (A: real-space hopping of an atom inside its coordination cage; B: bimodality of the soft modes' amplitude distributions), and their comparison with each other and with D²min. The end-to-end driver is `python scripts/run_soft_mode_tls_pipeline.py`; the thresholds (`N_SOFT_MODES`, `TLS_*`, …) are in `config.py`.
+`analysis/soft_modes/` covers the quasi-harmonic soft-mode ("soft spot") analysis, two-level-system (TLS) detection by two independent methods, and their comparison with each other and with D²min.
+
+* **Soft modes** (`modes.py`). PCA of the mass-weighted displacement matrix (frames × 3N coordinates, displacements from the time-averaged structure). The eigenvalue of a mode is the mean squared amplitude of the trajectory along it, so a **large eigenvalue = a soft mode**. The per-atom softness is `s_i = Σ_n λ_n p_{i,n}` over the `N_SOFT_MODES` softest modes (`p_{i,n}` = the share of mode n that sits on atom i; modes can be restricted to quasi-localized ones with `SOFT_MODE_PR_MAX`).
+* **TLS, Method A** (`detect_tls_direct`, real space). An atom's position relative to the centroid of its own coordination cage is tested for hopping between two recurring positions (one vs two Gaussians by BIC, with an autocorrelation-corrected number of independent frames; thresholds `TLS_*` in `config.py`).
+* **TLS, Method B** (`detect_tls_amplitude`, mode space). The amplitude distribution P(a_n) of each soft mode is tested for two peaks.
+* **Comparisons** (`comparison.py`, `source.py`). Soft spots vs TLS; whether softness or TLS-ness predicts where D²min is high (ROC / AUC); whether soft atoms are *sources* of plastic activity (where D²min is elevated, and whether it rises there first), always against a thermal baseline and a null model that permutes the soft labels within (element, coordination number) groups.
+
+`python scripts/run_soft_mode_tls_pipeline.py` runs everything below; the thresholds are in `config.py`.
+
+| Stage | Main files in `outputs/run_soft_mode_tls_pipeline/` |
+| --- | --- |
+| 1. 3D soft modes | `participation_spectrum_3d.png`, `participation_per_mode_<element>.png`, `softness_map_3d_flat.png`, `softness_map_3d_pr_weighted.png` |
+| 2. 2D per z-slice | `softness_map_2d_overview.png`, `softness_map_2d_overview_pr_weighted.png` |
+| 3. TLS detection | `mode_amplitude_distributions_3d.png` (P(a_n) and a_n(t) of the softest modes), `example_tls_mode_amplitude.png` (only if Method B flags a mode); for every atom found by Method A, `tls_candidate_atom_<i>_softest_modes.png` and `tls_candidate_atom_<i>_strongest_modes.png` |
+| 4. Comparisons | `soft_vs_tls.png`, `roc_soft_vs_d2min.png`, `roc_tls_vs_d2min.png` |
+| 5. Per-element statistics | `distribution_<field>_by_element_average.png` and `distribution_<field>_by_element.mp4` for `<field>` = `softness`, `softness_pr_weighted`, `d2min`; `d2min_softness_side_by_side_3d.mp4`, `d2min_softness_maps_side_by_side_3d.mp4` |
+| 6. Soft atoms as sources | `d2min_by_soft_neighbours.png` |
+
+The candidate grids of stage 3 have the same layout as the P(a_n) grid. The first panel is the atom's cage coordinate along the axis connecting the two Gaussians Method A found (what Method A actually tested), the second panel its direction of largest variance, and the remaining panels are covariance modes: the 10 softest ones, or the 10 that carry most of that atom's own motion (`mode_selection="softest"` / `"largest_swing"` in `candidate_diagnostics`; further selection rules are added in `MODE_SELECTORS` in `tls.py`). The candidate plots are produced for whatever Method A flags, so they work unchanged on another dataset.
+
+#### 5.1 How far can the PCA be trusted?
+
+The covariance matrix has 3N = 20250 rows but is estimated from about 100 frames, so it has at most T−1 non-zero eigenvalues, and the SVD returns those modes for *any* data, noise included. Each eigenvalue is measured on the same frames that were used to choose its mode, which inflates it (for pure noise by roughly the ratio 3N/T). `python scripts/run_pca_reliability.py` quantifies this with two split-half tests (first half of the frames against the second half):
+
+1. **Eigenvalues.** Find the modes on one half, project the frames of the other half on them, and compare the mean squared amplitude there (the *held-out variance*) with the eigenvalue found on the first half. Their ratio, the *retained fraction*, is about 1 for a real mode and about T_half/3N for fitted noise. Chance level per mode: the same procedure on data in which every coordinate is shifted in time by its own random amount (independent coordinates, same variance and autocorrelation each).
+2. **Softness map.** The whole soft-mode analysis is run on each half; the two per-atom softness maps are compared by Spearman rank correlation and by the overlap of their softest 5 % of atoms, against the same null and against the plain per-atom mean-square-displacement map (no PCA).
+
+The definitions, the null model and the interpretation are written out in the header of `analysis/soft_modes/pca_reliability.py`. Both tests print a summary table and write `pca_reliability.png` and `softness_reproducibility.png` to `outputs/run_pca_reliability/`; they take about a minute for 6750 atoms and 101 frames.
 
 ### 6. 4D-STEM simulation
 
@@ -250,6 +279,7 @@ then run `wsl --shutdown` from PowerShell.
 * **Cell size.** The MD cell is about 49 × 49 × 49 Å (≈ 5 nm), much thinner than a TEM lamella, so the simulated diffuse scattering is weak. The diffraction workflow can repeat the cell along `z` (`atoms.repeat((1, 1, 4))`), which assumes periodicity.
 * **Atomic radii.** Zr = 1.60 Å, Cu = 1.28 Å (`R_ZR`, `R_CU` in `config.py`) – change them there only.
 * **Free volume vs defects.** They are treated as related but distinct descriptors; the cross-correlation analysis is meant to measure their relation, not assume it.
+* **Few frames for the PCA.** The soft-mode analysis decomposes a 3N × 3N covariance matrix estimated from about 100 frames, so only the strongest modes can be resolved and the eigenvalues are inflated. Run `scripts/run_pca_reliability.py` before interpreting individual modes or the softness map.
 * **Unwrapped positions.** The LAMMPS dumps re-wrap coordinates into the cell every frame; displacement-based analyses (D²min, soft modes) use `utils.unwrap_positions` to remove periodic jumps.
 
 ---

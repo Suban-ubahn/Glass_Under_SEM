@@ -1100,14 +1100,15 @@ def plot_d2min_by_soft_neighbours(n_soft_neighbours, soft_mask, values, null=Non
 def plot_mode_amplitude_grid(diag, ncols=4, bins=None, show_time_series=True,
                              amplitude_unit="√amu·Å", save_path=None):
     """
-    P(a_n) of the softest modes, one panel per mode.
-    `diag` = analysis.tls_detection.mode_amplitude_diagnostics(...).
+    P(a_n) and a_n(t), one panel per mode (or per quantity).
+    `diag` = analysis.soft_modes.tls.mode_amplitude_diagnostics(...)
+    (softest modes) or candidate_diagnostics(...) (one TLS candidate).
 
     a_n(t) is the amplitude of mode n in frame t: ONE number per frame that
     says how far the whole configuration is displaced along that mode.
     It is shown in units of its own standard deviation sigma_n (so the
-    axes are dimensionless and all modes can be compared; sigma_n itself,
-    in `amplitude_unit`, is written in each title).
+    axes are dimensionless and all panels can be compared; sigma_n itself,
+    in its own unit, is written in each title).
 
     Top panel (histogram):
       x axis      a_n / sigma_n
@@ -1121,10 +1122,13 @@ def plot_mode_amplitude_grid(diag, ncols=4, bins=None, show_time_series=True,
     Title: mode index, eigenvalue, participation ratio, sigma_n,
     DeltaBIC (> 6: two Gaussians fit clearly better), BC = bimodality
     coefficient (> 0.555 hints at two peaks), T_eff = effective number of
-    independent frames. A mode the detector flags as TLS gets a red title.
+    independent frames. A panel the detector flags as TLS gets a red title.
 
-    amplitude_unit : unit of sigma_n for the title: "√amu·Å" if the modes were
-        mass-weighted (the default pipeline), "Å" otherwise.
+    If diag has "labels" / "units" / "title" (candidate_diagnostics), they
+    replace the default mode title, the unit and the figure title.
+
+    amplitude_unit : unit of sigma_n for the title when diag has no "units":
+        "√amu·Å" if the modes were mass-weighted (the default pipeline), "Å" otherwise.
     """
     if save_path is None:
         save_path = os.path.join(OUTPUT_DIR, "mode_amplitude_distributions.png")
@@ -1134,12 +1138,12 @@ def plot_mode_amplitude_grid(diag, ncols=4, bins=None, show_time_series=True,
         bins = int(np.clip(np.sqrt(T), 8, 30))
     nrows = int(np.ceil(M / ncols))
     rows_per_mode = 2 if show_time_series else 1
-    fig_h = (3.9 if show_time_series else 3.0) * nrows + 0.6
+    fig_h = (3.9 if show_time_series else 3.0) * nrows + 1.0
     fig = plt.figure(figsize=(3.9 * ncols, fig_h))
     gs = fig.add_gridspec(nrows * rows_per_mode, ncols,
                           height_ratios=([3, 1.2] if show_time_series else [1]) * nrows,
                           hspace=1.0 if show_time_series else 0.7, wspace=0.4,
-                          top=1 - 1.1 / fig_h, bottom=0.6 / fig_h)
+                          top=1 - 1.5 / fig_h, bottom=0.6 / fig_h)
 
     lim = max(3.5, float(np.abs(a).max()) * 1.05)
     x = np.linspace(-lim, lim, 400)
@@ -1159,9 +1163,13 @@ def plot_mode_amplitude_grid(diag, ncols=4, bins=None, show_time_series=True,
         ax.tick_params(labelsize=7)
         ax.set_xlabel(r"$a_n/\sigma_n$  (dimensionless)", fontsize=7)
         ax.set_ylabel(r"probability density (per $\sigma_n$)", fontsize=7)
-        pr = "" if diag["participation"] is None else f"  PR={diag['participation'][m]:.2f}"
-        ax.set_title(f"mode {diag['mode_idx'][m]}  λ={diag['eigenvalues'][m]:.2g}{pr}  "
-                     f"σ={diag['sigma'][m]:.2g} {amplitude_unit}\n"
+        unit = diag["units"][m] if diag.get("units") is not None else amplitude_unit
+        if diag.get("labels") is not None:
+            head = f"{diag['labels'][m]}\n"
+        else:
+            pr = "" if diag["participation"] is None else f"  PR={diag['participation'][m]:.2f}"
+            head = f"mode {diag['mode_idx'][m]}  λ={diag['eigenvalues'][m]:.2g}{pr}  "
+        ax.set_title(f"{head}σ={diag['sigma'][m]:.2g} {unit}\n"
                      f"ΔBIC={diag['delta_bic'][m]:.1f}  BC={diag['bimodality_coefficient'][m]:.2f}  "
                      f"T_eff={diag['t_eff'][m]:.0f}",
                      fontsize=7.5, color="tab:red" if diag["is_tls"][m] else "black")
@@ -1175,8 +1183,9 @@ def plot_mode_amplitude_grid(diag, ncols=4, bins=None, show_time_series=True,
             axt.set_xlabel("frame", fontsize=7)
             axt.set_ylabel(r"$a_n/\sigma_n$", fontsize=7)
 
-    fig.suptitle("P(a_n) of the softest modes   (red = single Gaussian, "
-                 "green dashed = detector's 2-Gaussian fit)", fontsize=11, y=1 - 0.05 / fig_h)
+    fig.suptitle(diag.get("title", "P(a_n) of the softest modes") +
+                 "\n(red = single Gaussian, green dashed = detector's 2-Gaussian fit)",
+                 fontsize=11, y=1 - 0.05 / fig_h)
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {save_path}")
@@ -1258,3 +1267,131 @@ def plot_degree_by_element(graphs, max_frames=10,
     plt.show()
 
     return deg_Zr, deg_Cu
+
+
+def plot_pca_reliability(res, eigenvalue_unit="amu·Å²", save_path=None):
+    """
+    Left: eigenvalues of the displacement covariance matrix (the PCA spectrum),
+    and how much of them is still there in frames that were not used to find the modes.
+    Right: that fraction, mode by mode, against what pure chance gives.
+    `res` = analysis.soft_modes.pca_reliability.pca_reliability_test(...).
+
+    Left panel (log scale)
+      x axis      mode index n (0 = softest = largest eigenvalue)
+      y axis      eigenvalue lambda_n = variance of the amplitude a_n(t);
+                  unit: amu·Å² if the displacements were mass-weighted, else Å²
+      black       all frames (the eigenvalues the pipeline uses)
+      grey        half of the frames: the eigenvalues of the PCA done on one half
+      red         the variance along those same modes in the OTHER half
+      dotted      variance of a random direction (total variance / number of coordinates)
+    Right panel (log scale)
+      y axis      retained fraction = red / grey:  1 = the mode is as strong in frames it
+                  never saw (real);  small = the eigenvalue was mostly fitted noise
+      grey band   chance (median to q of the null runs: same procedure on data in which
+                  every coordinate is shifted in time by its own random amount)
+      red dots    the leading modes above the band; open dots: the rest
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "pca_reliability.png")
+    eig = np.asarray(res["eigenvalues"])
+    ret = np.asarray(res["retained"])
+    Ks = len(ret)
+    n_rep = res["n_reproducible"]
+    q = int(round(100 * res["quantile"]))
+    T, P = res["n_frames"], res["n_coords"]
+
+    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(13, 4.8))
+
+    ax.plot(np.arange(len(eig)), eig, color="k", lw=1, marker="o", ms=3, label="all frames")
+    ax.plot(np.arange(Ks), res["in_sample"], color="0.5", ls="--", lw=1, marker="o", ms=3,
+            label="half of the frames (in-sample)")
+    ax.plot(np.arange(Ks), res["held_out"], color="tab:red", lw=1, marker="o", ms=3,
+            label="same modes, other half (held out)")
+    ax.axhline(res["noise_floor"], color="0.3", ls=":", lw=1, label="random direction")
+    ax.set_yscale("log")
+    ax.set_xlabel("mode index n  (0 = softest)")
+    ax.set_ylabel(f"eigenvalue $\\lambda_n$  ({eigenvalue_unit})")
+    ax.set_title(f"Covariance eigenvalues:  {T} frames ($T_{{eff}}$ = {res['t_eff']:.1f}), "
+                 f"{P} coordinates (P/T = {P / T:.1f})", fontsize=10)
+    ax.legend(fontsize=8)
+
+    n = np.arange(Ks)
+    ax2.fill_between(n, res["retained_null_median"], res["retained_null_high"], color="0.85",
+                     label=f"chance (median to {q}% of {res['n_null']} runs)")
+    ax2.plot(n, ret, color="k", lw=1)
+    ax2.scatter(n[n_rep:], ret[n_rep:], facecolors="none", edgecolors="k", s=18, zorder=3)
+    ax2.scatter(n[:n_rep], ret[:n_rep], color="tab:red", s=24, zorder=4,
+                label=f"above chance: {n_rep} modes")
+    ax2.axhline(1.0, color="0.3", ls=":", lw=1)
+    ax2.set_yscale("log")
+    ax2.set_ylim(bottom=min(float(np.min(res["retained_null_median"])), float(ret.min())) / 2, top=2.0)
+    ax2.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    ax2.set_xlabel("mode index n  (0 = softest)")
+    ax2.set_ylabel("retained fraction  (held-out variance / eigenvalue)")
+    ax2.set_title("How much of each eigenvalue is real?", fontsize=10)
+    ax2.legend(fontsize=8)
+
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {save_path}")
+
+def plot_softness_reproducibility(res, save_path=None):
+    """
+    Does the per-atom softness map survive when it is computed from only half of the frames?
+    `res` = analysis.soft_modes.pca_reliability.softness_reproducibility_test(...).
+
+    The whole soft-mode analysis is run on the first half of the frames and on the second half;
+    each gives one softness value per atom.
+    Left      every atom is one dot: its softness RANK among all atoms in the first half (x) against
+              its rank in the second half (y), as a percentile (100 = softest). Dots on the diagonal =
+              same ordering. The red box holds the softest top_fraction of the atoms in both halves.
+    Middle    Spearman rank correlation of the two maps (1 = identical ordering, 0 = unrelated).
+    Right     share of the top_fraction softest atoms of one half that are also among the top_fraction
+              softest of the other half.
+    Middle and right: red line = observed; grey histogram = the same number on `n_null` data sets in
+    which every coordinate is shifted in time by its own random amount (independent coordinates, each
+    with its own variance and autocorrelation); dashed grey = its `quantile`; dotted = two unrelated maps;
+    blue = the same number for the per-atom mean-square displacement map (no PCA).
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "softness_reproducibility.png")
+    a, b = np.asarray(res["softness_a"]), np.asarray(res["softness_b"])
+    N = len(a)
+    f = res["top_fraction"]
+    q = int(round(100 * res["quantile"]))
+    pa = 100 * np.argsort(np.argsort(a)) / (N - 1)
+    pb = 100 * np.argsort(np.argsort(b)) / (N - 1)
+
+    fig, axs = plt.subplots(1, 3, figsize=(15, 4.6))
+    ax = axs[0]
+    ax.scatter(pa, pb, s=3, alpha=0.25, color="k", linewidths=0)
+    ax.plot([0, 100], [0, 100], color="0.5", lw=0.8)
+    lo = 100 * (1 - f)
+    ax.add_patch(plt.Rectangle((lo, lo), 100 - lo, 100 - lo, fill=False, ec="tab:red", lw=1.2))
+    ax.set_xlabel("softness percentile, first half of the frames")
+    ax.set_ylabel("softness percentile, second half of the frames")
+    ax.set_title(f"{N} atoms", fontsize=10)
+
+    panels = [
+        (axs[1], "spearman_null", res["spearman"], res["spearman_msd"], 0.0, res["p_spearman"], 1.0,
+         "Spearman rank correlation of the two maps"),
+        (axs[2], "top_overlap_null", res["top_overlap"], res["top_overlap_msd"], f, res["p_top_overlap"], 100.0,
+         f"overlap of the top {100 * f:.0f}% softest atoms (%)")]
+    for ax, key, obs, msd, unrelated, p, sc, xlabel in panels:
+        null = np.asarray(res[key]) * sc
+        ax.hist(null, bins=20, color="0.8", label=f"independent coordinates ({res['n_null']} runs)")
+        ax.axvline(np.quantile(null, res["quantile"]), color="0.4", ls="--", lw=1, label=f"null {q}%")
+        ax.axvline(unrelated * sc, color="0.3", ls=":", lw=1, label="two unrelated maps")
+        ax.axvline(msd * sc, color="tab:blue", lw=1.5, label=f"MSD map, no PCA: {msd * sc:.2f}")
+        ax.axvline(obs * sc, color="tab:red", lw=2, label=f"softness map: {obs * sc:.2f}  (p = {p:.2f})")
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("number of null runs")
+        ax.legend(fontsize=8)
+    axs[1].set_title("Spearman rank correlation", fontsize=10)
+    axs[2].set_title("Overlap of the softest atoms", fontsize=10)
+
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {save_path}")

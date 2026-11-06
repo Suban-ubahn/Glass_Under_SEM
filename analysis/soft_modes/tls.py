@@ -645,3 +645,118 @@ def mode_amplitude_diagnostics(mode_result, n_modes=20, mode_idx=None, seed=0):
     }
  
  
+# ---------------------------------------------------------------
+# Which modes to show next to a TLS candidate.
+# A selector gets (mode_result, atom_row, n_modes) and returns an
+# array of mode indices. To add a new rule later (e.g. "the modes this
+# atom swings in the most"), write one more function and register it
+# here -- nothing else has to change.
+# ---------------------------------------------------------------
+def _atom_row_in_modes(mode_result, atom):
+    """Row of global atom index `atom` in mode_result["eigenvectors"]."""
+    idx = mode_result.get("atom_indices")
+    return int(atom) if idx is None else int(np.where(np.asarray(idx) == atom)[0][0])
+
+
+def _select_softest(mode_result, atom_row, n_modes):
+    # modes are stored softest first
+    return np.arange(min(n_modes, mode_result["eigenvalues"].shape[0]))
+
+
+def _atom_motion_per_mode(mode_result, atom_row):
+    """
+    (K,) how much of THIS atom's mean-square motion each mode carries:
+    lambda_n * |e_{atom,n}|^2   (eigenvalue = variance of the mode, times the
+    atom's share of the unit-norm eigenvector). Summed over all modes it is
+    the atom's total mean-square displacement (up to its mass factor).
+    """
+    ev = np.asarray(mode_result["eigenvectors"])                  # (N, D, K)
+    return np.asarray(mode_result["eigenvalues"]) * (ev[atom_row] ** 2).sum(axis=0)
+
+
+def _select_largest_swing(mode_result, atom_row, n_modes):
+    # the modes this atom moves the most in (largest first)
+    return np.argsort(_atom_motion_per_mode(mode_result, atom_row))[::-1][:n_modes]
+
+
+MODE_SELECTORS = {
+    "softest": _select_softest,
+    "largest_swing": _select_largest_swing,
+}
+
+
+def candidate_diagnostics(tls_A, mode_result, atom, n_modes=10,
+                          mode_selection="softest", mode_unit="√amu·Å", seed=0):
+    """
+    Data for plotting ONE structure-based (Method A) TLS candidate in the
+    same format as mode_amplitude_diagnostics(); pass the result to
+    visualization.plot.plot_mode_amplitude_grid().
+
+    Panels, in this order:
+      1. the atom's position relative to its own cage (the coordinate
+         Method A tested) along the HOP AXIS = the line through the centres
+         of the two Gaussians Method A fitted.
+      2. the same cage position along its direction of LARGEST variance
+         (left out when that is the same axis as 1).
+      3. n_modes covariance modes chosen by `mode_selection`
+         (default "softest"), each labelled with how many times an equal
+         share of that mode this atom carries.
+
+    Parameters
+    ----------
+    tls_A : dict from detect_tls_direct()
+    mode_result : dict from soft_mode_analysis_3d()
+    atom : int -- global atom index (must have been analysed by detect_tls_direct)
+    n_modes : int
+    mode_selection : key of MODE_SELECTORS
+    mode_unit : unit of the mode amplitudes ("√amu·Å" if mass-weighted, else "Å")
+    """
+    row = np.where(np.asarray(tls_A["atom_indices"]) == atom)[0]
+    if len(row) == 0:
+        raise ValueError(f"atom {atom} was not analysed by detect_tls_direct()")
+    row = int(row[0])
+
+    # --- the cage coordinate Method A actually tested ---
+    cage = np.asarray(tls_A["series"][row], dtype=float)         # (T, D), Angstrom
+    cage_c = cage - cage.mean(axis=0)
+    means = np.asarray(tls_A["means"][row])                       # (2, D)
+    hop = means[1] - means[0]
+    hop = hop / (np.linalg.norm(hop) + 1e-300)
+    principal = np.linalg.svd(cage_c, full_matrices=False)[2][0]
+
+    columns = [cage_c @ hop]
+    labels = [f"atom {atom}: cage position along the hop axis"]
+    units = ["Å"]
+    eig = [np.nan]
+    if abs(hop @ principal) < 0.98:
+        columns.append(cage_c @ principal)
+        labels.append(f"atom {atom}: cage position, largest-variance axis")
+        units.append("Å")
+        eig.append(np.nan)
+
+    # --- the modes ---
+    if mode_selection not in MODE_SELECTORS:
+        raise ValueError(f"mode_selection must be one of {list(MODE_SELECTORS)}")
+    m_row = _atom_row_in_modes(mode_result, atom)
+    modes = MODE_SELECTORS[mode_selection](mode_result, m_row, n_modes)
+    ev = np.asarray(mode_result["eigenvectors"])                  # (N, D, K)
+    share = ev.shape[0] * (ev[m_row] ** 2).sum(axis=0)            # (K,) x equal share
+    motion = _atom_motion_per_mode(mode_result, m_row)
+    motion_pct = 100.0 * motion / motion.sum()                    # % of this atom's motion
+    amps = np.asarray(mode_result["amplitudes"], dtype=float)
+    for k in modes:
+        columns.append(amps[:, k])
+        labels.append(f"mode {k}: {share[k]:.1f}x equal share, "
+            f"{motion_pct[k]:.1f}% of atom's motion")
+        units.append(mode_unit)
+        eig.append(float(mode_result["eigenvalues"][k]))
+
+    fake = {"amplitudes": np.stack(columns, axis=1),
+            "eigenvalues": np.array(eig), "participation": None}
+    diag = mode_amplitude_diagnostics(fake, n_modes=len(columns), seed=seed)
+    diag["labels"] = labels
+    diag["units"] = units
+    diag["title"] = (f"TLS candidate: atom {atom}   (Method A: "
+                     f"ΔBIC={tls_A['delta_bic'][atom]:.1f}, separation={tls_A['separation'][row]:.1f}, "
+                     f"switches={int(tls_A['n_switches'][row])}, T_eff={tls_A['t_eff'][row]:.0f})")
+    return diag

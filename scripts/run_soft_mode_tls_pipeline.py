@@ -26,7 +26,7 @@ from analysis.soft_modes.modes import (
 )
 from analysis.soft_modes.tls import (
     detect_tls_direct, detect_tls_direct_2d_slices, detect_tls_amplitude,
-    bimodality_test_batch, mode_amplitude_diagnostics,
+    bimodality_test_batch, mode_amplitude_diagnostics, candidate_diagnostics,
 )
 from analysis.soft_modes.comparison import run_full_comparison
 from analysis.soft_modes.source import soft_source_analysis
@@ -54,7 +54,7 @@ from utils import get_output_dir, unwrap_positions, compute_displacements
 from visualization.plot import (
     plot_participation_spectrum, plot_mode_atom_distribution_by_element, plot_softness_map,
     plot_mode_amplitude_distribution, plot_roc_curve, plot_soft_tls_scatter,
-    plot_distribution_by_element, plot_d2min_by_soft_neighbours, plot_mode_amplitude_grid
+    plot_distribution_by_element, plot_d2min_by_soft_neighbours, plot_mode_amplitude_grid,
 )
 from visualization.animate import (
     animate_distribution_by_element, animate_d2min_softness_side_by_side,
@@ -128,6 +128,15 @@ if __name__ == "__main__":
     )
     print(f"  {tls_A_3d['is_tls'].sum()} / {len(tls_A_3d['atom_indices'])} "
           f"candidate atoms flagged as TLS (direct method).")
+
+    # one P(a_n) / a_n(t) grid per structure-based TLS candidate (none -> nothing is drawn)
+    for atom in np.where(tls_A_3d["is_tls"])[0]:
+        for sel, tag in [("softest", "softest_modes"), ("largest_swing", "strongest_modes")]:
+            cand_diag = candidate_diagnostics(tls_A_3d, modes_3d, atom, n_modes=10,
+                                              mode_selection=sel)
+            plot_mode_amplitude_grid(
+                cand_diag,
+                save_path=os.path.join(OUTPUT_DIR, f"tls_candidate_atom_{atom}_{tag}.png"))
 
     # --- 3b. TLS detection: Method B (mode-amplitude bimodality), 3D ---
     print("\n=== TLS detection: Method B (mode-amplitude bimodality), 3D ===")

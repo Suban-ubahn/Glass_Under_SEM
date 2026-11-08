@@ -98,7 +98,8 @@ Glass_Under_SEM/
 │   ├── d2min/                compute.py (Falk–Langer D²min), comparison.py (vs defects / holes)
 │   ├── soft_modes/           modes.py (quasi-harmonic soft modes), tls.py (TLS detection),
 │   │                         source.py (soft atoms as sources of D²min), comparison.py,
-│   │                         element_stats.py, pca_reliability.py (how far the PCA can be trusted)
+│   │                         element_stats.py, pca_reliability.py (how far the PCA can be trusted),
+│   │                         pca_convergence.py (ACF, T_eff, convergence), local_pca.py (moving-window PCA)
 │   ├── projection_maps.py    time-integrated hole/defect maps, cross-correlation
 │   └── pypty_comparison.py   reconstruction vs ground-truth projected potential
 │
@@ -129,6 +130,9 @@ Glass_Under_SEM/
 | `run_d2min_hole_comparison.py` | D²min vs distance to holes (plot + overlay animation) | `outputs/run_d2min_hole_comparison/` |
 | `run_soft_mode_tls_pipeline.py` | soft modes (3D and per z-slice), TLS detection (two methods), soft vs TLS vs D²min, per-element statistics, soft atoms as sources of D²min, plots and animations | `outputs/run_soft_mode_tls_pipeline/` |
 | `run_pca_reliability.py` | split-half reliability of the PCA behind the soft modes: eigenvalues and softness map (see [5.1](#51-how-far-can-the-pca-be-trusted)) | `outputs/run_pca_reliability/` |
+| `run_pca_convergence.py` | autocorrelation of the PCA mode amplitudes, effective sample size, convergence of the PCA with the number of frames (see [5.2](#52-autocorrelation-effective-sample-size-and-convergence)) | `outputs/run_pca_convergence/` |
+| `run_local_pca.py` | moving-window (local) PCA next to the full-system PCA, with a shifted-column null (see [5.3](#53-local-moving-window-pca)) | `outputs/run_local_pca/` |
+| `test_pca_temporal_and_local.py` | synthetic-data checks of the two modules above (no trajectory needed) | — |
 | `run_soft_tls_dmin_comparison.py` | soft spots vs TLS vs D²min | `outputs/run_soft_tls_dmin_comparison/` |
 | `build_holes_defects_animations.py` | hole (KDTree, FFT) and defect-cluster animations | `outputs/build_holes_defects_animations/` |
 | `build_d2min_animations.py` | 2D / 3D D²min animations | `outputs/build_d2min_animations/` |
@@ -194,6 +198,30 @@ The covariance matrix has 3N = 20250 rows but is estimated from about 100 frames
 2. **Softness map.** The whole soft-mode analysis is run on each half; the two per-atom softness maps are compared by Spearman rank correlation and by the overlap of their softest 5 % of atoms, against the same null and against the plain per-atom mean-square-displacement map (no PCA).
 
 The definitions, the null model and the interpretation are written out in the header of `analysis/soft_modes/pca_reliability.py`. Both tests print a summary table and write `pca_reliability.png` and `softness_reproducibility.png` to `outputs/run_pca_reliability/`; they take about a minute for 6750 atoms and 101 frames.
+
+#### 5.2 Autocorrelation, effective sample size and convergence
+
+`python scripts/run_pca_convergence.py` (parameters: `PCA_ACF_*`, `PCA_CONV_*` in `config.py`; definitions and limitations in the header of `analysis/soft_modes/pca_convergence.py`):
+
+1. **ACF** of the leading mode amplitudes `a_n(t)` and of `a_n(t)²`. The eigenvalue is `mean(a_n²)`, so the statistical error of `λ_n` (for a fixed direction) is set by the ACF of `a_n²`, not of `a_n`; for a Gaussian amplitude `ρ_{a²}(k) = ρ_a(k)²`, drawn for comparison.
+2. **T_eff = T / τ_int**, `τ_int = 1 + 2 Σ_{k≤W} ρ(k)`, with the truncation lag `W` from Sokal's automatic window (default), Geyer's monotone-pair rule or the first negative lag; the lag-one AR(1) estimate `T(1−φ)/(1+φ)` is given next to it. T_eff is capped at T, and an estimate is **flagged** (printed, open marker in the plot) when the window does not close, `τ < 1`, the ACF is oscillatory or has a negative lobe, `T < 20 τ`, or the relative error of `τ` (`≈ √(2(2W+1)/T)`, about 50 % for W = 5) exceeds 30 %. Do not use a flagged T_eff to rescale error bars.
+
+   **The per-mode T_eff is biased low when P ≫ T.** With temporally correlated coordinates the leading PCA amplitudes are the smoothest temporal patterns (lag-one correlation ≈ 0.95 and a T_eff of 2–3 frames for coordinates whose true T_eff is 54), whether or not a collective mode exists. `PCA_ACF_N_NULL` shifted-column null runs (same per-coordinate autocorrelation, no collective modes) are therefore printed and drawn next to the observed values; an observed value inside the null range ("in null: yes") carries no information about the mode. The pooled T_eff (all coordinates) is not affected by the selection and is the better estimate of the number of independent frames of the data. AR(1) estimates below one independent frame are flagged `t_eff_below_1`.
+3. **Convergence**: the PCA is repeated on the first 20, 40, 60, 80 and 101 frames. Eigenvalues are followed by *matched* mode, eigenvectors are compared by overlap with each reference mode matched to the segment mode of **maximum overlap** (not by index), and the leading M-dimensional eigenspaces are compared by `tr(P_ref P_L)/M` (principal angles), against the reference and against the next longer segment, with a shifted-column null.
+
+**Limitation.** The segments are nested, so they are **not independent samples**: agreement between the 80- and 101-frame PCA is partly shared data, and the last point is 1 by construction. Convergence means "adding frames no longer changes the result", not "the result is correct"; a slow drift or aging transient would also converge. Independent evidence needs held-out frames (5.1) or a second trajectory.
+
+#### 5.3 Local (moving-window) PCA
+
+`python scripts/run_local_pca.py` (parameters: `LOCAL_PCA_*`; the full mathematics is in the header of `analysis/soft_modes/local_pca.py`). `LOCAL_PCA_WINDOW_MODE` selects the windows: `"neighborhood"` (default; a centre atom and its `LOCAL_PCA_WINDOW_SIZE − 1` nearest neighbours by minimum-image distance between the time-averaged positions, every `LOCAL_PCA_STEP`-th atom a centre; orthorhombic periodic cell) or `"index"` (atoms `1–15`, `2–16`, `3–17`, …). The covariance matrix of every window is built from the same mass-weighted, unwrapped displacements from the time-averaged structure and fully diagonalised; eigenvalues, eigenvectors and participation ratios of every window are stored (`local_pca.npz`, with the centre atoms and their positions for spatial maps). It is independent of the TLS detection. Any list of equally sized atom-index arrays can also be passed as windows.
+
+Plots: local eigenvalue spectra as a heatmap along the atom index (`local_pca_spectra.png`), participation ratios (`local_pca_participation.png`), local vs full-system eigenvalues, normalised overlaps with the global modes restricted to the window, and leading-eigenspace overlaps (`local_pca_vs_global.png`), and whether the same local modes are found in overlapping windows (`local_pca_consistency.png`): for neighbourhood windows the partner of a window is its `j`-th nearest window centre, and panel (c) counts in how many of the nearest windows a mode is found again; for index windows it is window `w + j` and the chain length of consecutive windows. Every number is shown against a shifted-column null.
+
+**What the mathematics says.** Because the frames, the mean and the mass weights are the same, the window covariance `C_w` is a principal submatrix of the full covariance `C`. Hence (verified in `scripts/test_pca_temporal_and_local.py`): local eigenvalues interlace the global ones (`λ^w_n ≤ λ_n` for any data, so a ratio below 1 is not a result); `Σ_n λ^w_n` is the sum of the window's coordinate variances; and each local eigenvalue is the exact mixture `λ^w_n = Σ_m λ_m |g_m|² O_nm²` of the global modes restricted to the window (`g_m`, normalised overlap `O_nm` of local mode n with `g_m`).
+
+**Numerical resolution is not statistical accuracy.** With 45 coordinates and 101 frames `C_w` has full rank and is diagonalised exactly — no rank deficiency, unlike the 20250-coordinate global matrix. But it is estimated from the same autocorrelated 101 frames (T_eff < T): even for uncorrelated unit-variance noise the sample eigenvalues of 45 coordinates from 101 samples spread over 0.11…2.8, and from T_eff ≈ 20 samples over 0…6. All windows use the same frames and overlapping windows share atoms, so they are neither independent datasets nor independent evidence; at most `N/n` disjoint windows exist, and they are coupled through the global modes. The local analysis uses no information that is not in the full covariance matrix; it asks a different question (the fluctuations of this atom group as a marginal) with a better-conditioned eigenproblem.
+
+**What can be concluded:** which global modes make up the fluctuations of an atom group and by how much; whether a local mode or leading local eigenspace is reproduced by the restricted global modes beyond the null; whether the local spectrum departs from the sampling-noise range; whether a local mode survives shifting the window by a few atoms (robustness against the window boundary, not against sampling). **What cannot:** that a local mode is a global mode or a confirmation of one (a restricted global mode is an eigenvector of `C_w` only if the rest of the system does not feed the window); significance from the number of windows; spatial locality for atom-index windows unless the atom numbering follows space (the script prints the windows' radius of gyration against random groups); that the leading local modes of a compact cluster are "local": they are expected to be largely near-uniform motion of the whole cluster, i.e. restrictions of long-wavelength global modes, so a high overlap with the global modes is the default outcome and has to be judged against the null; the neighbour lists are fixed for the whole trajectory, atoms that leave a cluster during the run stay in it; anything about the true dynamics without held-out frames or a second trajectory.
 
 ### 6. 4D-STEM simulation
 

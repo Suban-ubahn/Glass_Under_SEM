@@ -1395,3 +1395,500 @@ def plot_softness_reproducibility(res, save_path=None):
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {save_path}")
+
+# =============================================================
+# PCA temporal analysis, convergence and local (moving-window) PCA
+#   analysis/soft_modes/pca_convergence.py, analysis/soft_modes/local_pca.py
+# Colours: fixed order, one entity = one colour (blue, orange, aqua, yellow, magenta);
+# modes ranked by index are drawn light -> dark in one hue; grey = chance / reference.
+# =============================================================
+
+_SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
+_GRID = dict(color="0.9", lw=0.6)
+
+
+def _ranked_colors(n):
+    return plt.cm.Blues(np.linspace(0.35, 0.95, max(n, 1)))
+
+
+def _style(ax):
+    ax.grid(True, **_GRID)
+    ax.set_axisbelow(True)
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+
+
+def _save(fig, save_path, default_name):
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, default_name)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {save_path}")
+
+
+def plot_amplitude_acf(res, n_show=4, save_path=None):
+    """
+    Autocorrelation of the PCA mode amplitudes and the effective number of independent frames.
+    `res` = analysis.soft_modes.pca_convergence.pca_temporal_analysis(...) (or amplitude_acf_analysis).
+
+    Left    ACF rho(k) of a_n(t) for the n_show softest modes (k = lag in frames); grey band = white-noise
+            band +-band_z/sqrt(T): lags inside it are not distinguishable from 0.
+    Middle  ACF of a_n(t)^2, the series whose mean is the eigenvalue lambda_n. Solid = measured, dashed =
+            rho_a(k)^2, what a stationary Gaussian amplitude would give.
+    Right   T_eff = T / tau_int against mode index: window truncation of the ACF of a (grey) and of a^2
+            (blue), and the lag-one AR(1) estimate T (1-phi)/(1+phi) of a^2 (orange). Open marker =
+            flagged unreliable (oscillatory / negative ACF / window not closed / tau < 1 /
+            error > max_rel_err ...; flags are printed by print_amplitude_acf). Dotted = T_eff pooled over all
+            coordinates (pca_reliability), dashed = T. T_eff is capped at T.
+    If `res` has a shifted-column null (pca_temporal_analysis(..., n_null > 0)) it is drawn in orange: the envelope
+    of the null ACFs in the left and middle panels, the null range of T_eff in the right one. The null has no
+    collective modes, so whatever lies inside it is produced by the selection of smooth temporal patterns from T
+    frames alone (see the IN-SAMPLE CAVEAT in pca_convergence.py) and says nothing about the mode.
+    """
+    T, M = res["n_frames"], res["n_modes"]
+    lags, band = res["lags"], res["band"]
+    n_show = min(n_show, M)
+    null = res.get("null")
+    fig, axs = plt.subplots(1, 3, figsize=(16, 4.6))
+
+    for ax, key, title in ((axs[0], "amplitude", "ACF of the amplitude $a_n(t)$"),
+                           (axs[1], "squared", "ACF of the squared amplitude $a_n(t)^2$")):
+        ax.axhspan(-band, band, color="0.9", label="white-noise band")
+        if null is not None:
+            q = int(round(100 * null["quantile"]))
+            ax.fill_between(lags, null[key]["acf_low"][:n_show].min(axis=0),
+                            null[key]["acf_high"][:n_show].max(axis=0), color="#f2a65a", alpha=0.28, lw=0,
+                            label=f"shifted-column null ({100 - q}-{q}%)")
+        ax.axhline(0, color="0.5", lw=0.8)
+        for n in range(n_show):
+            ax.plot(lags, res[key]["acf"][n], color=_SERIES[n], lw=1.4, marker="o", ms=2.5,
+                    label=f"mode {n}")
+            if key == "squared":
+                ax.plot(lags, res["gaussian_acf_squared"][n], color=_SERIES[n], lw=1, ls="--")
+        ax.set_xlabel("lag k (frames)")
+        ax.set_ylabel(r"$\rho(k)$")
+        ax.set_title(title, fontsize=10)
+        ax.set_ylim(-1.0, 1.05)
+        ax.legend(fontsize=8, ncol=2)
+        _style(ax)
+    axs[1].text(0.98, 0.02, "dashed: $\\rho_a(k)^2$ (Gaussian prediction)", transform=axs[1].transAxes,
+                ha="right", va="bottom", fontsize=8, color="0.3")
+
+    ax = axs[2]
+    n = np.arange(M)
+    series = [("amplitude", "t_eff", "a(t), window rule", "0.45", "s"),
+              ("squared", "t_eff", r"$a(t)^2$, window rule", _SERIES[0], "o"),
+              ("squared", "ar1_t_eff", r"$a(t)^2$, AR(1)", _SERIES[1], "^")]
+    for key, field, label, color, mk in series:
+        y = np.asarray(res[key][field], dtype=float)
+        ok = np.asarray(res[key]["reliable"] if field == "t_eff" else
+                        [len(f) == 0 for f in res[key]["ar1_flags"]])
+        ax.plot(n, y, color=color, lw=1, alpha=0.6)
+        ax.scatter(n[ok], y[ok], color=color, marker=mk, s=34, zorder=3, label=label)
+        ax.scatter(n[~ok], y[~ok], facecolors="none", edgecolors=color, marker=mk, s=34, zorder=3)
+    if null is not None:
+        q = int(round(100 * null["quantile"]))
+        ax.fill_between(n, null["squared"]["t_eff_low"], null["squared"]["t_eff_high"], color="#f2a65a",
+                        alpha=0.28, lw=0, label=f"null, $a^2$ window rule ({100 - q}-{q}%)")
+        ax.fill_between(n, null["squared"]["ar1_t_eff_low"], null["squared"]["ar1_t_eff_high"], color="#c0392b",
+                        alpha=0.18, lw=0, label=f"null, $a^2$ AR(1) ({100 - q}-{q}%)")
+    ax.axhline(T, color="0.3", ls="--", lw=1, label=f"T = {T}")
+    if "pooled_t_eff" in res:
+        ax.axhline(res["pooled_t_eff"], color="0.3", ls=":", lw=1.2,
+                   label=f"pooled over coordinates: {res['pooled_t_eff']:.0f}")
+    ax.set_ylim(0, T * 1.08)
+    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    ax.set_xlabel("mode index n  (0 = softest)")
+    ax.set_ylabel(r"$T_{eff}$ (frames)")
+    ax.set_title(f"Effective sample size  (open marker = flagged unreliable)", fontsize=10)
+    ax.legend(fontsize=8, loc="lower right")
+    _style(ax)
+    p = res["params"]
+    fig.suptitle(f"{T} frames, window rule '{p['window_method']}' (c = {p['window_c']:g}), lags <= {res['max_lag']}."
+                 f"  Relative error of $\\tau$ is ~ $\\sqrt{{2(2W+1)/T}}$ (about 50% for W = 5): "
+                 f"order of magnitude only.", fontsize=9, y=1.0)
+    _save(fig, save_path, "pca_amplitude_acf.png")
+
+
+def plot_pca_convergence(res, save_path=None):
+    """
+    Convergence of the PCA with the number of frames: the same PCA on the first L frames, L = res["lengths"],
+    compared with the longest segment (the reference). `res` = pca_convergence.pca_convergence(...).
+    Nested segments share frames and the last point is 1 by construction: this shows that adding frames
+    stops changing the result, not that the result is right.
+
+    (a) eigenvalue of the MATCHED mode / reference eigenvalue, one line per reference mode (light -> dark =
+        softer -> ... mode index 0 darkest); black dashed = total variance / reference.
+    (b) overlap |v_ref . v_L| of each reference mode with its best-matching mode of the L-frame PCA (matched
+        by maximum overlap, not by index; light -> dark as in a). Orange dashed: mean overlap if modes are
+        compared by index. Grey: chance (mean matched overlap on shifted-column null data, median to upper quantile).
+    (c) leading M-dimensional eigenspace: overlap tr(P_ref P_L)/M = mean cos^2 of the principal angles, against the
+        reference (blue) and against the next longer segment (orange); grey bands = null; dotted = random
+        subspaces M/P.
+    (d) overlap matrix |v_ref,i . v_j| of the SHORTEST segment (columns = its modes, rows = reference modes);
+        dots mark the matched mode: off-diagonal dots are modes that changed rank.
+    """
+    L = np.asarray(res["lengths"])
+    M, Ms = res["n_modes"], res["subspace_dim"]
+    cols = _ranked_colors(M)[::-1]
+    fig, axs = plt.subplots(2, 2, figsize=(12.5, 9))
+
+    ax = axs[0, 0]
+    ratio = res["matched_eigenvalue"] / res["reference_eigenvalues"][None, :]
+    for n in range(M):
+        ax.plot(L, ratio[:, n], color=cols[n], lw=1.3, marker="o", ms=3, label=f"mode {n}" if n in (0, M - 1) else None)
+    ax.plot(L, res["total_variance"] / res["total_variance"][-1], color="k", ls="--", lw=1, label="total variance")
+    ax.axhline(1.0, color="0.5", lw=0.8)
+    ax.set_xlabel("frames L")
+    ax.set_ylabel(r"$\lambda$(matched mode) / $\lambda_{ref}$")
+    ax.set_title("(a) eigenvalue convergence", fontsize=10)
+    ax.legend(fontsize=8)
+    _style(ax)
+
+    ax = axs[0, 1]
+    for n in range(M):
+        ax.plot(L, res["matched_overlap"][:, n], color=cols[n], lw=1.3, marker="o", ms=3)
+    ax.plot(L, np.nanmean(res["index_overlap"], axis=1), color=_SERIES[1], ls="--", lw=1.3,
+            label="mean, matched by INDEX")
+    ax.plot([], [], color=cols[0], label="matched by max overlap (one line per mode)")
+    if res["n_null"] > 0:
+        nm = res["null_matched_overlap"]
+        ax.fill_between(L, np.median(nm, axis=0), np.quantile(nm, res["quantile"], axis=0), color="0.8",
+                        label=f"chance (mean over modes, null median to {int(round(100 * res['quantile']))}%)")
+    ax.set_ylim(0, 1.03)
+    ax.set_xlabel("frames L")
+    ax.set_ylabel(r"overlap $|v_{ref}\cdot v_L|$")
+    ax.set_title("(b) eigenvector overlap with the reference", fontsize=10)
+    ax.legend(fontsize=8, loc="lower right")
+    _style(ax)
+
+    ax = axs[1, 0]
+    q = int(round(100 * res["quantile"]))
+    ax.plot(L, res["subspace_overlap"], color=_SERIES[0], lw=1.6, marker="o", ms=4, label="vs reference")
+    ax.plot(L[:-1], res["subspace_overlap_next"], color=_SERIES[1], lw=1.6, marker="s", ms=4, label="vs next longer segment")
+    if res["n_null"] > 0:
+        ax.fill_between(L, np.median(res["null_subspace_overlap"], axis=0),
+                        np.quantile(res["null_subspace_overlap"], res["quantile"], axis=0), color=_SERIES[0],
+                        alpha=0.15, label=f"null vs reference (median to {q}%)")
+        ax.fill_between(L[:-1], np.median(res["null_subspace_overlap_next"], axis=0),
+                        np.quantile(res["null_subspace_overlap_next"], res["quantile"], axis=0), color=_SERIES[1],
+                        alpha=0.15, label=f"null vs next (median to {q}%)")
+    ax.axhline(res["subspace_random_baseline"], color="0.3", ls=":", lw=1, label=f"random subspaces M/P")
+    ax.set_ylim(0, 1.03)
+    ax.set_xlabel("frames L")
+    ax.set_ylabel(rf"subspace overlap  tr($P_{{ref}}P_L$)/{Ms}")
+    ax.set_title(f"(c) leading {Ms}-dimensional eigenspace", fontsize=10)
+    ax.legend(fontsize=8, loc="lower right")
+    _style(ax)
+
+    ax = axs[1, 1]
+    O = res["overlap_matrices"][0]
+    im = ax.imshow(O, aspect="auto", cmap="Blues", vmin=0, vmax=1, origin="upper", interpolation="nearest")
+    ax.scatter(res["matched_index"][0], np.arange(M), color="k", s=14, zorder=3, label="matched mode")
+    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    ax.set_xlabel(f"mode j of the {L[0]}-frame PCA")
+    ax.set_ylabel("reference mode i")
+    ax.set_title(f"(d) overlap matrix, {L[0]} frames vs reference", fontsize=10)
+    ax.legend(fontsize=8, loc="upper right")
+    fig.colorbar(im, ax=ax, label=r"$|v_i^{ref}\cdot v_j|$")
+    fig.suptitle(f"PCA on the first L frames, reference L = {L[-1]} ({res['n_coords']} coordinates). "
+                 f"Nested segments share frames: not independent samples.", fontsize=10, y=1.0)
+    _save(fig, save_path, "pca_convergence.png")
+
+
+def _window_xlabel(res):
+    """x axis label of the window list: centre atom index (neighbourhood windows) or mean atom index (index windows)."""
+    if res["params"].get("window_mode") == "neighborhood":
+        return "window centre (atom index; not a spatial order)"
+    return "window position (mean atom index)"
+
+
+def _heatmap(ax, data, position, cmap="Blues", vmin=None, vmax=None, label="", title="", n_rows=None,
+             xlabel="window position (mean atom index)"):
+    n_rows = data.shape[1] if n_rows is None else n_rows
+    ext = [position[0], position[-1], -0.5, n_rows - 0.5]
+    im = ax.imshow(np.asarray(data)[:, :n_rows].T, aspect="auto", origin="lower", cmap=cmap, vmin=vmin,
+                   vmax=vmax, extent=ext, interpolation="nearest")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("local mode index n  (0 = softest)")
+    ax.set_title(title, fontsize=10)
+    ax.get_figure().colorbar(im, ax=ax, label=label)
+
+
+def _band(ax, x, pct, color, label, ls="-"):
+    """Median line and 5-95 % band of a (3, len(x)) percentile array."""
+    ax.fill_between(x, pct[0], pct[2], color=color, alpha=0.18, lw=0)
+    ax.plot(x, pct[1], color=color, lw=1.5, ls=ls, label=label)
+
+
+def plot_local_pca_spectra(res, eigenvalue_unit="amu·Å²", save_path=None):
+    """
+    Local eigenvalue spectra along the window list (centre atom index for neighbourhood windows; the list is not a
+    spatial order). `res` = local_pca.local_pca_analysis(...).
+
+    Top left    log10 of the local eigenvalues lambda^w_n: x = window position (mean atom index), y = local mode
+                index (0 = softest), colour = log10(lambda^w_n) in `eigenvalue_unit`.
+    Top right   the same spectra divided by the window's total variance (the shape of the spectrum, independent
+                of how much the atoms of the window vibrate): lambda^w_n / trace C_w.
+    Bottom left Median and 5-95 % band over the windows of lambda^w_n (blue), the full-system eigenvalues lambda_n
+                of the same rank (black): lambda^w_n <= lambda_n always (Cauchy interlacing) so this is a bound, not a result.
+    Bottom right Normalised spectrum lambda^w_n / trace C_w: windows (blue), shifted-column null (grey, median to upper
+                quantile of its window average: independent coordinates, same variance and autocorrelation),
+                and the Marchenko-Pastur range of pure noise for K coordinates and T frames (dotted; dashed with
+                T_eff if given). Local spectra inside the grey/dotted range are not distinguishable from sampling noise.
+    """
+    from analysis.soft_modes.local_pca import local_pca_band_statistics
+    loc, st = res["local"], res["statistics"]
+    pos = res["position"]
+    K = loc["n_coords"]
+    n = np.arange(K)
+    bands = local_pca_band_statistics(res)
+    lam = np.maximum(loc["eigenvalues"], 1e-300)
+    fig, axs = plt.subplots(2, 2, figsize=(14, 9))
+    _heatmap(axs[0, 0], np.log10(lam), pos, label=rf"$\log_{{10}}\lambda^w_n$ ({eigenvalue_unit})",
+             title=f"(a) local eigenvalues, {res['params']['window_size']}-atom "
+                   f"{'neighbourhood ' if res['params'].get('window_mode') == 'neighborhood' else ''}windows, step {res['params']['step']}",
+             xlabel=_window_xlabel(res))
+    frac = loc["eigenvalues"] / np.maximum(loc["total_variance"], 1e-300)[:, None]
+    _heatmap(axs[0, 1], frac, pos, label=r"$\lambda^w_n\,/\,\mathrm{tr}\,C_w$", title="(b) spectrum shape",
+             xlabel=_window_xlabel(res))
+
+    ax = axs[1, 0]
+    _band(ax, n, bands["eigenvalues"], _SERIES[0], "local, median and 5-95% of windows")
+    lg = res["global"]["eigenvalues"][:K]
+    ax.plot(np.arange(len(lg)), lg, color="k", lw=1.3, label=r"full system $\lambda_n$ (upper bound)")
+    ax.set_yscale("log")
+    ax.set_xlabel("mode index n  (0 = softest)")
+    ax.set_ylabel(rf"eigenvalue ({eigenvalue_unit})")
+    ax.set_title("(c) local vs full-system eigenvalues", fontsize=10)
+    ax.legend(fontsize=8)
+    _style(ax)
+
+    ax = axs[1, 1]
+    _band(ax, n, bands["spectrum_fraction"], _SERIES[0], "windows, median and 5-95%")
+    if res["null"] is not None:
+        q = int(round(100 * res["null"]["quantile"]))
+        ax.fill_between(n, bands["null_median"]["spectrum_fraction"], bands["null_high"]["spectrum_fraction"],
+                        color="0.6", alpha=0.5, label=f"shifted-column null (median to {q}% of window average)")
+    for edges, ls, lab in ((st["mp_edges"], ":", f"white-noise range, T = {st['n_frames']}"),
+                           (st["mp_edges_teff"], "--",
+                            None if st["mp_edges_teff"] is None else rf"white-noise range, $T_{{eff}}$ = {st['t_eff']:.0f}")):
+        if edges is None:
+            continue
+        ax.axhline(edges[1] / K, color="0.3", ls=ls, lw=1.1, label=lab)       # upper edge
+        if edges[0] > 0:                                                       # lower edge (0 when T_eff < K)
+            ax.axhline(edges[0] / K, color="0.3", ls=ls, lw=1.1)
+    ax.set_yscale("log")
+    ax.set_xlabel("local mode index n  (0 = softest)")
+    ax.set_ylabel(r"$\lambda^w_n\,/\,\mathrm{tr}\,C_w$")
+    ax.set_title("(d) spectrum shape against sampling noise (lines: upper / lower edge)", fontsize=10)
+    ax.legend(fontsize=8)
+    _style(ax)
+    fig.suptitle(f"{st['n_windows']} overlapping windows, {K} coordinates each, {st['n_frames']} frames "
+                 f"(coordinates/frames = {st['coords_per_frame']:.2f}). Windows share frames and atoms: "
+                 f"numerically exact, statistically not independent.", fontsize=10, y=1.0)
+    _save(fig, save_path, "local_pca_spectra.png")
+
+
+def plot_local_participation(res, save_path=None):
+    """
+    Participation ratios of the local modes (modes.participation_ratios convention, real-space vectors).
+    `res` = local_pca.local_pca_analysis(...). PR = 1 / (n sum_i p_i^2) lies in [1/n, 1]; the effective number of
+    atoms n_part = PR * n lies in [1, n] and is what is drawn, so windows of different size are comparable.
+
+    Left   n_part of every local mode along the atom index (x: window position, y: local mode index).
+    Right  median and 5-95 % band over windows of n_part against mode index (blue); shifted-column null
+           (grey, median to upper quantile of the window average of PR times n); dashed = n (fully delocalised
+           over the window). Mean n_part of the leading full-system modes is printed in the legend: n_part there is
+           an effective number of atoms out of N, not comparable to a number out of n.
+    """
+    from analysis.soft_modes.local_pca import local_pca_band_statistics
+    loc, glob = res["local"], res["global"]
+    n_at = loc["n_atoms_window"]
+    K = loc["n_coords"]
+    bands = local_pca_band_statistics(res)
+    fig, axs = plt.subplots(1, 2, figsize=(14, 4.8))
+    _heatmap(axs[0], loc["n_participating"], res["position"], vmin=1, vmax=n_at,
+             label=r"effective number of atoms  $n_{part}$ = PR$\cdot n$",
+             title="(a) participation of the local modes", n_rows=K, xlabel=_window_xlabel(res))
+    ax = axs[1]
+    n = np.arange(K)
+    _band(ax, n, bands["n_participating"], _SERIES[0], "windows, median and 5-95%")
+    if res["null"] is not None:
+        q = int(round(100 * res["null"]["quantile"]))
+        ax.fill_between(n, bands["null_median"]["participation"] * n_at, bands["null_high"]["participation"] * n_at,
+                        color="0.6", alpha=0.5, label=f"shifted-column null (median to {q}%)")
+    ax.axhline(n_at, color="0.3", ls="--", lw=1, label=f"n = {n_at} (delocalised over the window)")
+    ax.axhline(1, color="0.3", ls=":", lw=1, label="1 (single atom)")
+    ax.set_xlabel("local mode index n  (0 = softest)")
+    ax.set_ylabel(r"$n_{part}$ = PR$\cdot n$")
+    ax.set_title(f"(b) by mode index  (full-system modes 0-{min(4, len(glob['n_participating']) - 1)}: "
+                 f"n_part {glob['n_participating'][0]:.0f}-{glob['n_participating'][:5].max():.0f} of {glob['n_atoms']} atoms)",
+                 fontsize=9)
+    ax.set_ylim(0, n_at * 1.08)
+    ax.legend(fontsize=8, loc="lower center")
+    _style(ax)
+    _save(fig, save_path, "local_pca_participation.png")
+
+
+def plot_local_vs_global(res, save_path=None):
+    """
+    Local PCA against the full-system PCA of the same trajectory. `res` = local_pca.local_pca_analysis(...).
+    Blue = windows (median and 5-95 % over windows), grey = shifted-column null (median to upper quantile of the
+    window average), so the grey band is what chance gives for the same window size, frames and number of global
+    modes compared with.
+
+    (a) lambda^w_n / lambda_n: local over full-system eigenvalue of the same rank. <= 1 for any data (Cauchy
+        interlacing); it measures how much of the global mode's variance is inside the window.
+    (b) best normalised overlap max_m |v^w_n . g_m| / |g_m| of local mode n with the restrictions g_m of the
+        leading global modes (matching by maximum overlap, not by index).
+    (c) fraction of lambda^w_n contributed by the leading global modes, sum_{m<=Kg} lambda_m |v^w_n . g_m|^2 / lambda^w_n
+        (exact decomposition; 1 would mean the window variance is entirely made of those modes).
+    (d) leading M-dimensional eigenspaces: overlap S_M = tr(P^w_M P^glob_M)/M (solid) and variance capture ratio
+        (dashed: the restricted global eigenspace explains this share of the best possible M-dimensional share
+        of the window variance); dotted = random subspaces M/K.
+    """
+    from analysis.soft_modes.local_pca import local_pca_band_statistics
+    comp, st = res["comparison"], res["statistics"]
+    b = local_pca_band_statistics(res)
+    nc = comp["overlap_matrix"].shape[1]
+    Kg = comp["overlap_matrix"].shape[2]
+    dims = comp["subspace_dims"]
+    has_null = res["null"] is not None
+    q = int(round(100 * res["null"]["quantile"])) if has_null else None
+    fig, axs = plt.subplots(2, 2, figsize=(13, 9))
+
+    ax = axs[0, 0]
+    Kc = comp["lambda_ratio"].shape[1]
+    _band(ax, np.arange(Kc), b["lambda_ratio"], _SERIES[0], "windows")
+    ax.axhline(1, color="0.3", ls="--", lw=1, label="interlacing bound")
+    ax.set_yscale("log")
+    ax.set_xlabel("mode index n  (0 = softest)")
+    ax.set_ylabel(r"$\lambda^w_n\,/\,\lambda_n$")
+    ax.set_title("(a) local / full-system eigenvalue of the same rank", fontsize=10)
+    ax.legend(fontsize=8)
+    _style(ax)
+
+    for ax, key, title, ylabel in (
+            (axs[0, 1], "overlap_best", f"(b) best overlap with one of the {Kg} leading global modes",
+             "best normalised overlap"),
+            (axs[1, 0], "explained_fraction", f"(c) share of $\\lambda^w_n$ made of the {Kg} leading global modes",
+             "explained fraction")):
+        x = np.arange(nc)
+        _band(ax, x, b[key][:, :nc], _SERIES[0], "windows, median and 5-95%")
+        if has_null:
+            ax.fill_between(x, b["null_median"][key][:nc], b["null_high"][key][:nc], color="0.6", alpha=0.5,
+                            label=f"shifted-column null (median to {q}%)")
+        ax.set_ylim(0, 1.03)
+        ax.set_xlabel("local mode index n  (0 = softest)")
+        ax.set_ylabel(ylabel)
+        ax.set_title(title, fontsize=10)
+        ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+        ax.legend(fontsize=8, loc="lower left")
+        _style(ax)
+
+    ax = axs[1, 1]
+    for key, color, ls, lab in (("subspace_overlap", _SERIES[0], "-", r"overlap $S_M$"),
+                                ("capture_ratio", _SERIES[1], "--", "variance capture ratio")):
+        ax.fill_between(dims, b[key][0], b[key][2], color=color, alpha=0.15, lw=0)
+        ax.plot(dims, b[key][1], color=color, ls=ls, lw=1.6, marker="o", ms=4, label=lab + " (median, 5-95%)")
+        if has_null:
+            ax.plot(dims, b["null_high"][key], color=color, ls=ls, lw=1, alpha=0.5, marker="_", ms=8,
+                    label=f"null {q}%")
+    ax.plot(dims, comp["subspace_random"], color="0.3", ls=":", lw=1, label="random subspaces M/K")
+    ax.set_ylim(0, 1.03)
+    ax.set_xlabel("eigenspace dimension M")
+    ax.set_ylabel("overlap / ratio")
+    ax.set_title("(d) leading eigenspaces: local vs restricted global", fontsize=10)
+    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    ax.legend(fontsize=8, loc="lower left")
+    _style(ax)
+    fig.suptitle(f"Local ({res['params']['window_size']} atoms) vs full-system PCA, {st['n_frames']} frames. "
+                 f"Local modes are not global modes, and both use the same frames.", fontsize=10, y=1.0)
+    _save(fig, save_path, "local_pca_vs_global.png")
+
+
+def plot_local_consistency(res, save_path=None):
+    """
+    Are local modes found again in overlapping windows? `res` = local_pca.local_pca_analysis(...).
+    Window w is compared with window w + j (index windows) or with its j-th nearest window centre (neighbourhood
+    windows) on the atoms they share (x axis: share of the atoms that are common). Overlapping windows use the
+    same frames, so this tests robustness against the position of the window boundary, not against sampling.
+
+    (a) matched restricted overlap (maximum over the modes of the other window), mean over windows where the mode
+        has >= min_shared_weight of its norm on the shared atoms; one line per local mode (light -> dark = 0, ...);
+        grey = shifted-column null, mean over the same modes (median to upper quantile).
+    (b) leading-M eigenspace overlap (restricted, re-orthonormalised principal angles), one colour per M; thin
+        grey ticks = null upper quantile of the same M.
+    (c) index windows: chain length = number of consecutive windows (shift 1) over which mode n is found again with
+        overlap >= track_threshold. Neighbourhood windows have no linear order: 1 + the number of the nearest windows
+        in which it is found again (not a chain). Median and 5-95 % over start windows (blue band), their mean (blue
+        dashed) and the null's mean over windows (grey dashed): compare mean with mean, the counts are skewed.
+    """
+    cons, trk, st = res["consistency"], res["tracking"], res["statistics"]
+    n_at = res["local"]["n_atoms_window"]
+    shared = cons["shared_fraction"]
+    has_null = res["null"] is not None
+    q = int(round(100 * res["null"]["quantile"])) if has_null else None
+    S = res["summary"]
+    nm = S["consistency_matched"].shape[1]
+    show = sorted({0, 1, 2, 4, min(9, nm - 1)} & set(range(nm)))
+    cols = dict(zip(show, _ranked_colors(len(show))[::-1]))
+    fig, axs = plt.subplots(1, 3, figsize=(16, 4.8))
+
+    ax = axs[0]
+    for n in show:
+        ax.plot(shared, S["consistency_matched"][:, n], color=cols[n], lw=1.4, marker="o", ms=3, label=f"mode {n}")
+    if has_null:
+        nl = np.nanmean(res["null"]["consistency_matched"], axis=2)
+        ax.fill_between(shared, np.median(nl, axis=0), np.quantile(nl, res["null"]["quantile"], axis=0), color="0.6",
+                        alpha=0.5, label=f"null, mean over {nm} modes (median to {q}%)")
+    ax.set_ylim(0, 1.03)
+    ax.invert_xaxis()
+    ax.set_xlabel("share of atoms common to both windows")
+    ax.set_ylabel("matched restricted overlap")
+    ax.set_title("(a) single modes, matched by maximum overlap", fontsize=10)
+    ax.legend(fontsize=8, loc="lower left")
+    _style(ax)
+
+    ax = axs[1]
+    dims = cons["subspace_dims"]
+    for i, M in enumerate(dims):
+        ax.plot(shared, S["consistency_subspace"][:, i], color=_SERIES[i % len(_SERIES)], lw=1.4, marker="o", ms=3,
+                label=f"M = {M}")
+        if has_null:
+            ax.plot(shared, np.quantile(res["null"]["consistency_subspace"][:, :, i], res["null"]["quantile"], axis=0),
+                    color="0.45", ls="none", marker="_", ms=9)
+    ax.plot([], [], color="0.45", ls="none", marker="_", ms=9, label="null upper quantile")
+    ax.set_ylim(0, 1.03)
+    ax.invert_xaxis()
+    ax.set_xlabel("share of atoms common to both windows")
+    ax.set_ylabel("eigenspace overlap")
+    ax.set_title("(b) leading eigenspaces", fontsize=10)
+    ax.legend(fontsize=8, loc="lower left")
+    _style(ax)
+
+    ax = axs[2]
+    L = trk["chain_length"]
+    n = np.arange(L.shape[1])
+    pct = np.percentile(L, [5, 50, 95], axis=0)
+    _band(ax, n, pct, _SERIES[0], "windows, median and 5-95%")
+    ax.plot(n, L.mean(axis=0), color=_SERIES[0], lw=1.4, ls="--", marker="o", ms=3, label="windows, mean")
+    if has_null:
+        ax.plot(n, np.median(res["null"]["chain_length"], axis=0), color="0.45", lw=1.4, ls="--", marker="s", ms=3,
+                label="null, mean over windows (median of runs)")
+    ax.set_yscale("log")
+    ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    ax.set_xlabel("local mode index n  (0 = softest)")
+    if trk.get("kind") == "neighbours":
+        ax.set_ylabel(f"1 + nearest windows (of {trk['max_rank']}) in which the mode is found")
+        ax.set_title(f"(c) found again in neighbouring windows (overlap >= {trk['threshold']:g})", fontsize=10)
+    else:
+        ax.set_ylabel("consecutive windows in which the mode is found again")
+        ax.set_title(f"(c) chain length (overlap >= {trk['threshold']:g}, shift 1)", fontsize=10)
+    ax.legend(fontsize=8)
+    _style(ax)
+    fig.suptitle(f"Consistency across overlapping windows of {n_at} atoms ({st['n_windows']} windows, same "
+                 f"{st['n_frames']} frames: not independent)", fontsize=10, y=1.0)
+    _save(fig, save_path, "local_pca_consistency.png")

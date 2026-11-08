@@ -134,3 +134,42 @@ TLS_MIN_SWITCHES         = 2      # >=1 full A->B->A round trip (not a 1-way D^2
 
 D2MIN_QUANTILE_THRESHOLD = 0.9    # "rearranged" = D^2_min above this quantile of its distribution
 D2MIN_TOP_FRACTION       = 0.1    # top X% by score, for enrichment comparisons
+
+
+# ------------------------------------------------------------
+# PCA temporal analysis, convergence and local (moving-window) PCA
+#   (analysis/soft_modes/pca_convergence.py, analysis/soft_modes/local_pca.py;
+#    scripts/run_pca_convergence.py, scripts/run_local_pca.py)
+# None of these enters the soft-mode or TLS detection criteria above.
+# ------------------------------------------------------------
+
+# Autocorrelation of the mode amplitudes a_n(t), integrated autocorrelation time, T_eff
+PCA_ACF_N_MODES        = 10        # leading modes analysed
+PCA_ACF_MAX_LAG        = None      # largest lag (None = T // 2)
+PCA_ACF_WINDOW_METHOD  = "sokal"   # truncation of the sum: "sokal", "geyer" or "first_negative"
+PCA_ACF_WINDOW_C       = 5.0       # Sokal's window constant: W >= c * tau
+PCA_ACF_MIN_T_OVER_TAU = 20.0      # flag "short_series" when T < this * tau
+PCA_ACF_MAX_REL_ERR    = 0.3       # flag "large_error" when the relative error of tau exceeds it
+PCA_ACF_BAND_Z         = 1.96      # white-noise band of the ACF, in units of 1/sqrt(T)
+PCA_ACF_AR1_LAGS       = 10        # lags over which the AR(1) shape phi^k is checked
+PCA_ACF_N_NULL         = 20        # shifted-column null runs for the per-mode ACF / T_eff (0 = none); ~1 s each at 6750 atoms
+
+# PCA on progressively longer prefixes of the trajectory
+PCA_CONV_LENGTHS       = (20, 40, 60, 80, 101)   # frames; the longest one is the reference
+PCA_CONV_N_MODES       = 10        # reference modes followed (eigenvalues, overlaps)
+PCA_CONV_SUBSPACE_DIM  = 5         # M: leading M-dimensional eigenspace compared
+PCA_CONV_MATCHING      = "max"     # "max" (max overlap, may repeat) or "hungarian" (one-to-one)
+PCA_CONV_N_NULL        = 20        # shifted-column null runs (0 = none)
+
+# Moving-window local PCA
+LOCAL_PCA_WINDOW_MODE        = "neighborhood"  # "neighborhood": centre atom + nearest neighbours (spatial); "index": atoms s..s+n-1
+LOCAL_PCA_WINDOW_SIZE        = 15              # atoms per window (neighborhood: including the centre atom)
+LOCAL_PCA_STEP               = 1               # shift between windows (index) / spacing of the centre atom indices (neighborhood), in atoms
+LOCAL_PCA_N_GLOBAL_MODES     = 20              # leading global modes compared with
+LOCAL_PCA_SUBSPACE_DIMS      = (1, 3, 5, 10)   # eigenspace dimensions M compared
+LOCAL_PCA_N_COMPARE_MODES    = 10              # local modes with stored overlaps / followed across windows
+LOCAL_PCA_CONSISTENCY_OFFSETS = (1, 2, 4, 7, 10)   # windows compared: window w+j (index) / j-th nearest window centre (neighborhood)
+LOCAL_PCA_TRACK_THRESHOLD    = 0.8             # a mode is "found again" when the restricted overlap >= this
+LOCAL_PCA_MIN_SHARED_WEIGHT  = 0.5             # ... and >= this share of its norm lies on the shared atoms
+LOCAL_PCA_N_NULL             = 10              # shifted-column null runs (0 = none); ~10 s each at 6750 atoms
+LOCAL_PCA_SAVE_EIGENVECTORS  = True            # write all window eigenvectors (float32, ~55 MB) to the .npz

@@ -22,6 +22,14 @@ from analysis.soft_modes.local_pca import (
     neighborhood_windows, window_partners, _partner_table,
 )
 from analysis.soft_modes.pca_reliability import _flat
+from analysis.soft_modes.local_pca import (
+    detect_participation_dips, summarize_median, null_band_diagnostics, local_pca_band_statistics,
+    hilbert_index, spatial_window_order, order_locality, global_reference,
+)
+from analysis.soft_modes.local_pca_dips import (
+    atom_environment, investigate_dip_modes, normalized_amplitude, norm_fractions, real_space_vector,
+    representative_windows, select_modes, dip_investigation_arrays, write_dip_csv,
+)
 
 
 def ar1(phi, T, rng):
@@ -311,6 +319,280 @@ def test_marchenko_pastur_edges():
     ev = np.linalg.eigvalsh(np.cov(rng.standard_normal((4000, 45)), rowvar=False)[:45, :45])
     lo2, hi2 = marchenko_pastur_edges(45, 4000)
     assert lo2 * 0.9 < ev.min() and ev.max() < hi2 * 1.1
+
+
+# ---------------------------------------------------------------
+# Dips of the median participation curve
+# ---------------------------------------------------------------
+
+def _dips(y, **kw):
+    return detect_participation_dips(np.asarray(y, float), **kw)
+
+
+def test_dip_detection_isolated_flat_adjacent_and_none():
+    d = _dips([9, 9, 5, 9, 9])                                           # isolated: exact index, depth, prominence
+    assert list(d["minimum"]) == [2] and list(d["modes"]) == [2]
+    assert np.isclose(d["prominence"][0], 4) and np.isclose(d["depth"][0], 4) and np.isclose(d["value"][0], 5)
+    d = _dips([9, 9, 5, 5, 5, 9, 9])                                     # flat bottom: one dip, all three modes
+    assert list(d["minimum"]) == [2] and list(d["first"]) == [2] and list(d["last"]) == [4]
+    assert list(d["modes"]) == [2, 3, 4] and np.isclose(d["prominence"][0], 4)
+    d = _dips([9, 5, 5.1, 9, 9])                                         # adjacent: the nearly as low neighbour belongs to it
+    assert list(d["minimum"]) == [1] and list(d["modes"]) == [1, 2]
+    d = _dips([9, 5, 6, 5.2, 9])                                         # two minima, a maximum between: two dips, it belongs to neither
+    assert list(d["minimum"]) == [1, 3] and list(d["modes"]) == [1, 3] and list(d["mode_dip"]) == [0, 1]
+    assert np.isclose(d["prominence"][0], 4) and np.isclose(d["prominence"][1], 0.8)
+    assert len(_dips([9, 5, 6, 5.2, 9], prominence=1.0)["minimum"]) == 1  # threshold removes the shallow one
+    for y in ([9, 8, 7, 6, 5, 4], [3, 3, 3, 3], [9, 9, 5, 9, 9]):         # monotone, flat, below threshold
+        assert len(_dips(y, prominence=5.0 if y[0] == 9 and 5 in y else 0.5)["minimum"]) == 0
+    assert len(_dips([5, 9, 9, 9, 5])["minimum"]) == 0                    # ends cannot be a dip
+
+
+def test_dip_detection_has_no_hard_coded_index_and_obeys_scale_search_and_noise():
+    base = np.full(40, 9.0)
+    for k in (3, 17, 31):
+        y = base.copy(); y[k] = 4.0
+        assert list(_dips(y)["minimum"]) == [k]                          # the curve decides
+    y = base.copy(); y[[5, 6]] = 2.0; y[20] = 6.0; y[33:36] = 7.0
+    d = _dips(y)
+    assert list(d["minimum"]) == [5, 20, 33] and list(d["first"]) == [5, 20, 33] and list(d["last"]) == [6, 20, 35]
+    assert np.allclose(d["prominence"], [7, 3, 2]) and np.array_equal(d["modes"], [5, 6, 20, 33, 34, 35])
+    assert list(_dips(y, search=(10, 39))["minimum"]) == [20, 33]       # search range limits the minima, not the prominence
+    d2 = _dips(3.0 * y, prominence=1.5)                                   # same curve in other units: same dips
+    assert list(d2["minimum"]) == [5, 20, 33] and np.allclose(d2["prominence"], 3 * d["prominence"])
+    rng = np.random.default_rng(0)
+    noisy = 9 + 0.02 * rng.standard_normal(200)
+    assert len(_dips(noisy, prominence=0.5)["minimum"]) == 0              # noise below the prominence is not a dip
+    assert len(_dips(noisy, prominence=0.005)["minimum"]) > 5             # ... but is at a small threshold: the threshold is a choice
+    assert len(_dips([1.0, np.nan, 0.0, 1.0])["minimum"]) == 0            # no crash on non-finite input
+
+
+def rattler_displacements(N=360, T=101, L=12.0, seed=1):
+    """Atoms at random positions; 3 collective modes with the largest variance, ~10 % rattlers (localised, isotropic,
+    4x the amplitude) on an AR(1) noise floor: in windows of 15 atoms the first 3 modes are collective and the next
+    ones sit on the rattlers, so n_part(n) has a dip right after the collective modes."""
+    rng = np.random.default_rng(seed)
+    pos = rng.uniform(0, L, (N, 3))
+    disp = 0.05 * rng.standard_normal((T, N, 3))
+    for t in range(1, T):
+        disp[t] = 0.5 * disp[t - 1] + 0.87 * disp[t]
+    ratt = rng.random(N) < 0.1
+    disp[:, ratt] *= 4.0
+    for sc, phi in ((1.0, .8), (0.8, .7), (0.6, .5)):
+        v = rng.standard_normal((N, 3)); v /= np.linalg.norm(v)
+        disp += sc * 12 * ar1(phi, T, rng)[:, None, None] * v[None]
+    m = np.where(np.arange(N) % 2 == 0, 91.224, 63.546)
+    return disp - disp.mean(0), m, pos, np.full(3, L), np.where(np.arange(N) % 2 == 0, "Zr", "Cu")
+
+
+_RATTLER = {}
+
+
+def _rattler_result():
+    if "res" not in _RATTLER:
+        u, m, pos, box, sym = rattler_displacements()
+        res = local_pca_analysis(u, m, window_size=15, window_mode="neighborhood", mean_positions=pos, box=box,
+                                 n_global_modes=10, subspace_dims=(1, 3), n_compare_modes=2,
+                                 consistency_offsets=(1, 2, 4), n_null=2, dip_prominence=0.5)
+        _RATTLER.update(res=res, u=u, m=m, pos=pos, box=box, sym=sym)
+    return _RATTLER
+
+
+def test_detected_modes_are_computed_beyond_n_compare_modes_in_data_and_null():
+    R = _rattler_result()
+    res, d = R["res"], R["res"]["dips"]
+    assert len(d["modes"]) > 0 and d["modes"].max() >= 3                  # a dip beyond LOCAL_PCA_N_COMPARE_MODES = 2 here
+    need = int(d["modes"].max()) + 1
+    assert res["params"]["n_compare_modes"] >= need and res["params"]["n_consistency_modes"] >= need
+    assert res["comparison"]["overlap_matrix"].shape[1] >= need
+    assert res["consistency"]["matched_overlap"].shape[2] >= need and res["tracking"]["chain_length"].shape[1] >= need
+    assert res["summary"]["overlap_best"].shape[0] >= need and res["null"]["overlap_best"].shape[1] >= need
+    assert res["null"]["consistency_matched"].shape[2] >= need            # the null is evaluated at the same modes
+    assert np.isclose(d["value"].min(), np.median(res["local"]["n_participating"], axis=0)[d["minimum"]].min())
+    assert np.array_equal(d["curve"], np.median(res["local"]["n_participating"], axis=0))
+    assert np.all(d["prominence"] >= 0.5) and np.all(d["depth"] > 0)
+
+
+def test_dips_are_saved_in_the_npz():
+    import os, tempfile
+    from analysis.soft_modes.local_pca import save_local_pca
+    R = _rattler_result()
+    res = dict(R["res"])
+    res["dip_investigation"] = {"modes": np.array([1, 2])}
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "r.npz")
+        save_local_pca(res, path, eigenvectors_dtype=None)
+        z = np.load(path)
+        for k in ("modes", "minimum", "first", "last", "depth", "prominence", "value", "curve", "prominence_threshold"):
+            assert f"dips/{k}" in z.files
+        assert np.array_equal(z["dips/modes"], res["dips"]["modes"]) and "summary_median/n_participating" in z.files
+        assert "null/window_median/n_participating" in z.files and "dip_investigation/modes" in z.files
+
+
+def test_null_is_aggregated_like_the_observed_curve_and_band_widths_are_reported():
+    R = _rattler_result()
+    res = R["res"]
+    sm = res["summary_median"]
+    assert np.allclose(sm["n_participating"], np.median(res["local"]["n_participating"], axis=0))
+    assert np.allclose(sm["overlap_best"], np.median(res["comparison"]["overlap_best"][:, :sm["overlap_best"].shape[0]], axis=0))
+    assert not np.allclose(res["summary"]["participation"] * 15, sm["n_participating"])    # mean PR * n is the mean n_part
+    b = local_pca_band_statistics(res)
+    assert np.allclose(b["n_participating"][1], sm["n_participating"])                    # blue line = observed median
+    nullm = res["null"]["window_median"]["n_participating"]
+    assert np.allclose(b["null_median"]["n_participating"], np.median(nullm, axis=0))
+    assert np.allclose(b["null_high"]["n_participating"], np.quantile(nullm, res["null"]["quantile"], axis=0))
+    rows = {r["key"]: r for r in null_band_diagnostics(res)}
+    assert {"n_participating", "overlap_best", "spectrum_fraction"} <= set(rows)
+    assert all(r["null_width"] >= 0 and r["window_width"] > 0 for r in rows.values())
+
+
+def test_amplitude_normalisation_and_eigenvector_participation():
+    R = _rattler_result()
+    res, u, m = R["res"], R["u"], R["m"]
+    X = _flat(u, m)
+    loc = res["local"]
+    for w, n in ((0, 0), (17, 3), (200, 5), (359, 20)):
+        cols = loc["columns"][w]
+        v = loc["eigenvectors_mw"][w][:, n]
+        a, a_std, sigma = normalized_amplitude(X[:, cols], v)
+        assert abs(a.mean()) < 1e-9 * np.abs(a).max()                      # centred data -> zero mean
+        assert np.isclose(sigma, np.sqrt(loc["eigenvalues"][w, n]), rtol=1e-8)   # std(a_n) = sqrt(lambda_n), 1/T convention
+        assert np.isclose(a_std.mean(), 0, atol=1e-9) and np.isclose(a_std.std(), 1, rtol=1e-12)
+        sq = np.sqrt(m[res["windows"][w]])
+        vr = real_space_vector(v, m[res["windows"][w]], 3)
+        p = norm_fractions(vr)
+        assert np.isclose(np.linalg.norm(vr), 1) and np.isclose(p.sum(), 1)
+        assert np.isclose(1.0 / (p ** 2).sum(), loc["n_participating"][w, n])   # = PR * n of local_pca()
+        assert np.isclose(1.0 / (15 * (p ** 2).sum()), loc["participation"][w, n])
+        manual = (v.reshape(15, 3) / sq[:, None])
+        assert np.allclose(vr, manual / np.linalg.norm(manual))               # mass weighting undone, re-normalised
+    rng = np.random.default_rng(3)                                           # a Gaussian amplitude is N(0, 1) after normalising
+    from scipy.stats import kurtosis, skew
+    _, z, _ = normalized_amplitude(rng.standard_normal((20000, 4)) * [1, 2, 3, 4], np.array([0.5, 0.5, 0.5, 0.5]))
+    assert abs(skew(z)) < 0.05 and abs(kurtosis(z)) < 0.1
+
+
+def _stub_cutoffs():
+    import sys, types
+    try:
+        import cutoffs                                                       # noqa: F401  (needs the trajectory file)
+    except Exception:
+        stub = types.ModuleType("cutoffs")
+        stub.CUTOFF_DICT = stub.GRAPH_CUTOFF_DICT = {}
+        for k in ("CUTOFF_ZRZR", "CUTOFF_ZRCU", "CUTOFF_CUCU", "PEAK_ZRZR", "PEAK_ZRCU", "PEAK_CUCU"):
+            setattr(stub, k, 3.5)
+        sys.modules["cutoffs"] = stub
+
+
+def test_investigation_dominant_atoms_elements_environment_and_representative_windows():
+    _stub_cutoffs()
+    R = _rattler_result()
+    res = R["res"]
+    cut = {("Zr", "Zr"): 3.0, ("Zr", "Cu"): 2.6, ("Cu", "Cu"): 2.4}
+    inv = investigate_dip_modes(res, R["u"], R["m"], R["sym"], R["pos"], R["box"], cut, max_modes=4, top_atoms=3)
+    assert 0 < len(inv["modes"]) <= 4 and set(inv["modes"]) <= set(res["dips"]["modes"].tolist())
+    assert len(inv["table"]) == len(inv["modes"]) * 3 * 3 and len(inv["panels"]) == len(inv["modes"]) * 3
+    npart = res["local"]["n_participating"]
+    for k, mo in enumerate(inv["modes"]):
+        lo, me, hi = inv["window"][k]
+        assert npart[lo, mo] <= npart[me, mo] <= npart[hi, mo]            # low / median / high participation windows
+        assert np.allclose(inv["n_part"][k], npart[inv["window"][k], mo])  # recomputed from the real-space vector
+        assert np.allclose(inv["eigenvalue"][k], res["local"]["eigenvalues"][inv["window"][k], mo])
+    for pn in inv["panels"]:
+        assert np.isclose(pn["p"].sum(), 1) and pn["top"][0] == np.argmax(pn["p"])
+        assert set(pn["atoms"]) <= set(range(len(R["sym"])))
+    last = {}
+    for r in inv["table"]:
+        key = (r["mode"], r["window_class"])
+        assert r["element"] == R["sym"][r["atom"]]                          # element of the atom
+        assert r["rank"] == 1 or r["norm_fraction"] <= last[key][0] + 1e-12  # sorted by norm fraction
+        assert r["cumulative_fraction"] >= r["norm_fraction"] - 1e-12
+        assert np.isclose(r["vx"] ** 2 + r["vy"] ** 2 + r["vz"] ** 2, r["norm_fraction"])
+        last[key] = (r["norm_fraction"],)
+    env = inv["environment"]                                                # coordination against a brute-force count
+    pos, box = R["pos"], R["box"]
+    for i in (0, 5, 77, 301):
+        d = pos - pos[i]; d -= box * np.round(d / box)
+        r = np.linalg.norm(d, axis=1)
+        cn = sum(1 for j in range(len(pos)) if j != i and r[j] <= {("Zr", "Zr"): 3.0, ("Zr", "Cu"): 2.6, ("Cu", "Zr"): 2.6,
+                 ("Cu", "Cu"): 2.4}[(R["sym"][i], R["sym"][j])])
+        assert env["cn"][i] == cn
+        assert np.isclose(env["d_nn"][i], np.sort(r)[1])
+    assert np.array_equal(env["species"], ["Cu", "Zr"])
+    for mo, s in inv["windows_all"].items():
+        assert np.isclose(s["dominant_element_fraction"].sum(), 1) and np.isclose(s["norm_share_element"].sum(), 1, atol=1e-9)
+    arr = dip_investigation_arrays(inv)
+    assert np.array_equal(arr["modes"], inv["modes"])
+    import os, tempfile, csv
+    with tempfile.TemporaryDirectory() as tmp:
+        write_dip_csv(inv, os.path.join(tmp, "a.csv"))
+        rows = list(csv.DictReader(open(os.path.join(tmp, "a.csv"))))
+        assert len(rows) == len(inv["table"]) and {"mode", "atom", "element", "norm_fraction", "cn", "d_nn"} <= set(rows[0])
+    modes, trunc = select_modes(res["dips"], 1)
+    assert len(modes) == 1 and trunc == (len(res["dips"]["modes"]) > 1)
+    assert list(representative_windows([5, 1, 3, 2, 4], (0, 0.5, 1))) == [1, 2, 0]
+
+
+
+# ---------------------------------------------------------------
+# Spatial ordering of the windows, full-system participation spectrum
+# ---------------------------------------------------------------
+
+def test_hilbert_curve_is_continuous_and_a_permutation():
+    for D, bits in ((2, 3), (3, 2), (3, 3)):
+        g = np.array(np.meshgrid(*[np.arange(1 << bits)] * D, indexing="ij")).reshape(D, -1).T
+        h = hilbert_index(g, bits)
+        assert np.array_equal(np.sort(h), np.arange(len(g)))               # every cell once
+        path = g[np.argsort(h)]
+        assert np.all(np.abs(np.diff(path, axis=0)).sum(axis=1) == 1)       # consecutive cells are face neighbours
+
+
+def test_spatial_window_order_keeps_neighbours_together():
+    rng = np.random.default_rng(0)
+    box = np.array([30.0, 28.0, 26.0])
+    c = rng.uniform(0, 1, (3000, 3)) * box
+    order = spatial_window_order(c, box)
+    assert np.array_equal(np.sort(order), np.arange(len(c))) and np.array_equal(order, spatial_window_order(c, box))
+    near = order_locality(c, box, order)
+    assert near < 0.25 * order_locality(c, box)                              # atom-index (here random) order is far worse
+    assert near < 0.5 * order_locality(c, box, np.argsort(c[:, 0], kind="stable"))   # and so is sorting along x
+    assert np.array_equal(order, spatial_window_order(c + box * np.array([1, -2, 3]), box))   # periodic images, same order
+
+
+def test_windows_info_has_the_spatial_order_and_the_heat_map_columns_follow_it():
+    from visualization.plot import _window_axis
+    R = _rattler_result()
+    res = R["res"]
+    wi = res["windows_info"]
+    assert np.array_equal(wi["spatial_order"], spatial_window_order(wi["center_positions"], R["box"]))
+    data = res["local"]["n_participating"]
+    img, x, label = _window_axis(res, data)
+    assert np.array_equal(img, data[wi["spatial_order"]]) and np.array_equal(x, np.arange(len(data))) and "Hilbert" in label
+    res_idx = {"windows_info": {}, "params": {"window_mode": "index"}, "position": np.arange(len(data))}
+    img, x, label = _window_axis(res_idx, data)
+    assert np.array_equal(img, data) and "atom index" in label
+
+
+def test_full_system_participation_spectrum():
+    from analysis.soft_modes.modes import participation_spectrum as global_participation_spectrum
+    u, m, pos, box, sym = rattler_displacements()
+    T, N, _ = u.shape
+    gp = global_participation_spectrum(u, m, n_null=3)
+    ref = global_reference(u, m, n_modes=T - 1)
+    assert gp["n_participating"].shape == (T - 1,) and np.allclose(gp["n_participating"], ref["n_participating"])
+    assert np.all(gp["n_participating"] >= 1 - 1e-9) and np.all(gp["n_participating"] <= N + 1e-9)
+    assert gp["null"].shape == (3, T - 1) and np.all(gp["null_high"] >= gp["null_median"])
+    assert np.median(gp["null_median"]) > 0.4 * N and gp["n_participating"][3] < 0.5 * gp["null_median"][3]   # rattler modes are below noise
+    rng = np.random.default_rng(0)                                           # homogeneous noise: random unit vectors, n_part = 0.6 N for D = 3
+    gn = global_participation_spectrum(rng.standard_normal((101, N, 3)), np.ones(N), n_null=2)
+    assert abs(np.median(gn["n_participating"]) / N - 0.6) < 0.03 and abs(np.median(gn["null_median"]) / N - 0.6) < 0.03
+    u2 = u.copy(); u2[:, 7, :] *= 400.0                                      # one atom vibrating far more than the rest
+    g2 = global_participation_spectrum(u2, m)
+    assert g2["n_participating"][0] < 1.5 and g2["null"] is None
+    # same convention as the local windows: a window of ALL atoms gives the local participation of the global mode
+    all_atoms = local_pca(u[:, :20], m[:20], windows=np.arange(20)[None, :], store_eigenvectors=False)
+    g20 = global_reference(u[:, :20], m[:20], n_modes=5)
+    assert np.allclose(all_atoms["n_participating"][0, :5], g20["n_participating"])
+
 
 
 if __name__ == "__main__":

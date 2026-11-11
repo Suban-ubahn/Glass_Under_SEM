@@ -84,6 +84,17 @@ if __name__ == "__main__":
         soft_mode_mask=modes_3d["soft_mode_mask"], elements=dominant_elements_3d,
         save_path=os.path.join(OUTPUT_DIR, "participation_spectrum_3d.png"),
     )
+    # n_part = PR*N of EVERY full-system mode (T-1) against mode index, with the shifted-column null
+    # (same displacement matrix and mass weighting as soft_mode_analysis_3d)
+    from analysis.soft_modes.modes import participation_spectrum
+    from config import PCA_PARTICIPATION_N_NULL
+    from utils import unwrap_positions, compute_displacements
+    from visualization.plot import plot_global_participation
+    _pos_full = unwrap_positions(np.array([a.positions for a in trajectory]),
+                                 np.array([a.cell.array.diagonal() for a in trajectory]))
+    _u_full, _ = compute_displacements(_pos_full)
+    gp = participation_spectrum(_u_full, trajectory[0].get_masses(), n_null=PCA_PARTICIPATION_N_NULL)
+    plot_global_participation(gp, save_path=os.path.join(OUTPUT_DIR, "participation_npart_3d.png"))
     # with which atoms is each mode populated? one figure per element
     plot_mode_atom_distribution_by_element(
         modes_3d["eigenvectors"], elements, soft_mode_mask=modes_3d["soft_mode_mask"],

@@ -161,9 +161,12 @@ PCA_CONV_SUBSPACE_DIM  = 5         # M: leading M-dimensional eigenspace compare
 PCA_CONV_MATCHING      = "max"     # "max" (max overlap, may repeat) or "hungarian" (one-to-one)
 PCA_CONV_N_NULL        = 20        # shifted-column null runs (0 = none)
 
+# Participation of the full-system PCA modes (n_part = PR*N against mode index, participation_npart_3d.png)
+PCA_PARTICIPATION_N_NULL = 10      # shifted-column null runs (0 = none); ~10 s each at 6750 atoms
+
 # Moving-window local PCA
 LOCAL_PCA_WINDOW_MODE        = "neighborhood"  # "neighborhood": centre atom + nearest neighbours (spatial); "index": atoms s..s+n-1
-LOCAL_PCA_WINDOW_SIZE        = 15              # atoms per window (neighborhood: including the centre atom)
+LOCAL_PCA_WINDOW_SIZE        = 30              # atoms per window (neighborhood: including the centre atom)
 LOCAL_PCA_STEP               = 1               # shift between windows (index) / spacing of the centre atom indices (neighborhood), in atoms
 LOCAL_PCA_N_GLOBAL_MODES     = 20              # leading global modes compared with
 LOCAL_PCA_SUBSPACE_DIMS      = (1, 3, 5, 10)   # eigenspace dimensions M compared
@@ -173,3 +176,13 @@ LOCAL_PCA_TRACK_THRESHOLD    = 0.8             # a mode is "found again" when th
 LOCAL_PCA_MIN_SHARED_WEIGHT  = 0.5             # ... and >= this share of its norm lies on the shared atoms
 LOCAL_PCA_N_NULL             = 10              # shifted-column null runs (0 = none); ~10 s each at 6750 atoms
 LOCAL_PCA_SAVE_EIGENVECTORS  = True            # write all window eigenvectors (float32, ~55 MB) to the .npz
+
+# Dips of the median participation curve n_part(n) (right panel of local_pca_participation.png) and what the
+# modes at the dips are made of -- analysis/soft_modes/local_pca.py (detect_participation_dips) and
+# analysis/soft_modes/local_pca_dips.py. Mode indices are never set by hand: the curve decides.
+LOCAL_PCA_DIP_PROMINENCE     = .1             # minimum prominence of a dip, in effective atoms n_part (None = no detection)
+LOCAL_PCA_DIP_REL_HEIGHT     = .1             # modes of a dip: within this x prominence of its minimum (0.5 = width at half prominence)
+LOCAL_PCA_DIP_SEARCH         = None            # (first, last) local mode range searched for minima, or None = the whole spectrum
+LOCAL_PCA_DIP_MAX_MODES      = 3               # investigate at most this many detected modes (largest prominence first)
+LOCAL_PCA_DIP_QUANTILES      = (0.05, 0.5, 0.95)   # representative windows: those at these quantiles of n_part of the mode (low, median, high)
+LOCAL_PCA_DIP_TOP_ATOMS      = 5               # atoms with the largest norm fraction listed per mode and window (CSV)

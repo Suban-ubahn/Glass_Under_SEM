@@ -150,10 +150,15 @@
 #   which every coordinate is shifted cyclically in time by its own random amount
 #   (pca_reliability._shift_columns: independent coordinates, same variance and
 #   autocorrelation per coordinate). Window-averaged statistics of the real data are shown
-#   against their distribution over null runs. Because C_w of the null is diagonal in
+#   against their distribution over null runs (a curve drawn as a window MEDIAN is compared with the median of the
+#   null's window medians, summarize_median; curves drawn as window means with means). Because C_w of the null is diagonal in
 #   expectation, it shows what 101 frames of K coordinates produce WITHOUT collective motion
 #   (spectral spread, chance overlaps with global modes, chance consistency across windows).
 #   It does not model a collective-but-featureless spectrum.
+#
+# DIPS. detect_participation_dips() finds the local minima of the median n_part(n) curve (a mode more localised
+#   than its neighbours in the spectrum) by prominence; local_pca_analysis(dip_prominence=...) then makes sure
+#   the comparison, consistency and tracking cover the detected modes, and local_pca_dips.py investigates them.
 #
 # WHAT CAN AND CANNOT BE CONCLUDED
 #   Can:  which global modes make up the fluctuations of a given atom group, and how much (3);
@@ -279,6 +284,78 @@ def window_partners(center_positions, box, max_rank=10):
         row = [a for a in idx[w] if a != w]          # drop the window itself (normally first)
         out[w] = row[:R]
     return out
+
+
+def hilbert_index(coords, bits):
+    """
+    Position along the Hilbert curve of integer grid points (n, D), each coordinate in [0, 2**bits): J. Skilling,
+    "Programming the Hilbert curve" (AIP Conf. Proc. 707, 2004), vectorised. Consecutive indices are grid points
+    that differ by one step along one axis, so points close along the curve are close in space (the converse
+    holds only partly: neighbours across a boundary of the curve's cells are far apart along it).
+    """
+    X = np.array(coords, dtype=np.int64)
+    n, D = X.shape
+    if bits * D > 62:
+        raise ValueError("bits * D must be <= 62")
+    Q = 1 << (bits - 1)
+    while Q > 1:                                                       # inverse undo of the excess work
+        P = Q - 1
+        for i in range(D):
+            has = (X[:, i] & Q) != 0
+            X[has, 0] ^= P
+            t = (X[~has, 0] ^ X[~has, i]) & P
+            X[~has, 0] ^= t
+            X[~has, i] ^= t
+        Q >>= 1
+    for i in range(1, D):                                              # Gray encode
+        X[:, i] ^= X[:, i - 1]
+    t = np.zeros(n, dtype=np.int64)
+    Q = 1 << (bits - 1)
+    while Q > 1:
+        t[(X[:, D - 1] & Q) != 0] ^= Q - 1
+        Q >>= 1
+    X ^= t[:, None]
+    h = np.zeros(n, dtype=np.int64)                                    # interleave the bits of the D coordinates
+    for b in range(bits - 1, -1, -1):
+        for i in range(D):
+            h = (h << 1) | ((X[:, i] >> b) & 1)
+    return h
+
+
+def spatial_window_order(center_positions, box, bits=10):
+    """
+    Order of the windows for a spatially organised axis: the windows sorted by the position of their centre atom
+    along a Hilbert space-filling curve through the periodic box (the centres are wrapped into [0, box) and put on
+    a 2**bits grid per axis; 2**10 = 1024 cells per axis, far finer than the atom spacing).
+
+    Why this order: the windows are compact neighbourhoods, so what one wants next to each other in a plot are
+    windows that are close in 3D. No 1D order can do that for all neighbours of a 3D point; the Hilbert curve keeps
+    the neighbourhoods together better than sorting along an axis (which puts a whole x-y plane of unrelated atoms
+    between two z-neighbours) or a Morton / lexicographic order, and is deterministic. Limits: the curve cuts the
+    box into cells and is not periodic, so windows that are close across a cell boundary or across the periodic
+    boundary can be far apart on the axis; the horizontal position is a rank, not a length.
+
+    Returns the index array `order` (n_windows,): column j of an ordered plot is window order[j].
+    """
+    c = np.asarray(center_positions, dtype=float)
+    box = np.asarray(box, dtype=float)
+    cells = 1 << bits
+    g = np.floor(((c % box) / box) * cells).astype(np.int64)
+    g = np.clip(g, 0, cells - 1)
+    return np.argsort(hilbert_index(g, bits), kind="stable")
+
+
+def order_locality(center_positions, box, order=None):
+    """
+    Median minimum-image distance (Å) between the centres of consecutive windows in `order` (None: the given
+    order, i.e. the atom index): how far apart neighbouring columns of a heat map are in space.
+    """
+    c = np.asarray(center_positions, dtype=float)
+    c = c if order is None else c[np.asarray(order)]
+    d = np.diff(c, axis=0)
+    box = np.asarray(box, dtype=float)
+    d -= box * np.round(d / box)
+    return float(np.median(np.linalg.norm(d, axis=1)))
 
 
 def window_columns(windows, n_dim):
@@ -696,6 +773,31 @@ def summarize(local, comp, cons, trk, min_weight=0.5):
     }
 
 
+_MEDIAN_KEYS = ("spectrum_fraction", "n_participating", "overlap_best", "explained_fraction",
+                "subspace_overlap", "capture_ratio")
+
+
+def summarize_median(local, comp):
+    """
+    Window MEDIANS of the quantities that the plots draw as "median and 5-95 % over windows" (blue) against the
+    shifted-column null. summarize() averages over windows (means); a mean and a median of a skewed quantity
+    differ (n_part: the mean of PR times n is the mean n_part, not the median one), so the null of a median
+    curve has to be a median as well: this is the null's counterpart of the observed median curves. Same
+    shapes as the corresponding summarize() entries; the participation entry is n_part = PR * n.
+    """
+    nc = comp["overlap_matrix"].shape[1]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        return {
+            "spectrum_fraction": np.nanmedian(local["eigenvalues"] / np.maximum(local["total_variance"], 1e-300)[:, None], axis=0),
+            "n_participating": np.nanmedian(local["n_participating"], axis=0),
+            "overlap_best": np.nanmedian(comp["overlap_best"][:, :nc], axis=0),
+            "explained_fraction": np.nanmedian(comp["explained_fraction"], axis=0),
+            "subspace_overlap": np.nanmedian(comp["subspace_overlap"], axis=0),
+            "capture_ratio": np.nanmedian(comp["capture_ratio"], axis=0),
+        }
+
+
 def local_pca_band_statistics(res, q=(5, 50, 95)):
     """
     Percentiles over the windows (and the null's median / upper quantile) of the quantities that
@@ -730,6 +832,46 @@ def local_pca_band_statistics(res, q=(5, 50, 95)):
         keys = [k for k in res["summary"]]
         out["null_median"] = {k: np.nanmedian(null[k], axis=0) for k in keys}
         out["null_high"] = {k: np.nanquantile(null[k], null["quantile"], axis=0) for k in keys}
+        # curves drawn as window medians: the null is the median over windows as well (summarize_median); the
+        # mean-over-windows entries above keep their keys, except where a median counterpart of the same key exists
+        for k, v in (null.get("window_median") or {}).items():
+            out["null_median"][k] = np.nanmedian(v, axis=0)
+            out["null_high"][k] = np.nanquantile(v, null["quantile"], axis=0)
+    return out
+
+
+def null_band_diagnostics(res, rel_visible=0.01):
+    """
+    Width of the shifted-column null band (median to upper quantile over null runs) against the width of the
+    5-95 % band over windows, for every curve of the local PCA plots that has both. The null band is the
+    run-to-run spread of a statistic aggregated over thousands of windows, the window band is the spread
+    between windows: they are different things, and the first is usually much narrower.
+
+    Returns a list of dicts: key, null_width and window_width (both median over modes; in decades for the
+    log-scale spectrum_fraction), null_width_max, ratio = null_width / window_width, axis_fraction (largest null
+    width / the range spanned by the drawn curves), visible (axis_fraction >= rel_visible: below ~1 % of the axis the
+    band is thinner than a line width).
+    """
+    b = local_pca_band_statistics(res)
+    if res.get("null") is None:
+        return []
+    out = []
+    for k in _MEDIAN_KEYS:
+        if k not in b["null_median"] or k not in b:
+            continue
+        nm, nh, w = b["null_median"][k], b["null_high"][k], b[k]
+        n = min(len(nm), w.shape[1])
+        log = k == "spectrum_fraction"                      # drawn on a log axis: widths as decades
+        f = (lambda a: np.log10(np.maximum(a, 1e-300))) if log else (lambda a: a)
+        nwidth = f(nh[:n]) - f(nm[:n])
+        wwidth = f(w[2, :n]) - f(w[0, :n])
+        lo = np.nanmin([np.nanmin(f(w[0, :n])), np.nanmin(f(nm[:n]))])
+        hi = np.nanmax([np.nanmax(f(w[2, :n])), np.nanmax(f(nh[:n]))])
+        frac = np.nanmax(nwidth) / max(hi - lo, 1e-300)
+        out.append({"key": k, "null_width": float(np.nanmedian(nwidth)), "null_width_max": float(np.nanmax(nwidth)),
+                    "window_width": float(np.nanmedian(wwidth)),
+                    "ratio": float(np.nanmedian(nwidth) / max(np.nanmedian(wwidth), 1e-300)),
+                    "axis_fraction": float(frac), "visible": bool(frac >= rel_visible), "log10": log})
     return out
 
 
@@ -753,11 +895,106 @@ def save_local_pca(res, path, eigenvectors_dtype=np.float32):
 
 
 # ------------------------------------------------------------
+# Dips of the participation curve
+# ------------------------------------------------------------
+
+def _no_dips(y, lo, hi, prominence, rel_height):
+    e = np.zeros(0, dtype=int)
+    f = np.zeros(0)
+    return {"modes": e, "mode_dip": e.copy(), "minimum": e.copy(), "first": e.copy(), "last": e.copy(),
+            "left_base": e.copy(), "right_base": e.copy(), "value": f, "depth": f.copy(), "prominence": f.copy(),
+            "curve": y, "prominence_threshold": float(prominence), "rel_height": float(rel_height),
+            "search": np.array([lo, hi])}
+
+
+def detect_participation_dips(curve, prominence=0.3, rel_height=0.5, search=None):
+    """
+    Dips (local minima of a given prominence) of the median participation curve n_part(n) against the local mode
+    index n. No mode index is assumed: the curve decides.
+
+    A dip is a local minimum of `curve` found by scipy.signal.find_peaks on -curve, whose PROMINENCE is >=
+    `prominence` (in the unit of the curve, effective atoms for n_part). The prominence of a minimum is the drop
+    from the LOWER of the two highest points one reaches walking away from it on either side until a lower point
+    (or the end of the curve) is met: it is how far a dip stands out, whatever the slope of the curve around it.
+    A flat bottom (several modes with exactly the same value) is one minimum; scipy reports its middle, here
+    `minimum` is its first mode.
+
+    The modes of a dip: the modes next to the minimum, without gap, whose value is within `rel_height` * prominence
+    of the minimum (rel_height 0.5: the width at half prominence), so a dip that spans adjacent modes (a flat
+    bottom, or a minimum with a nearly as low neighbour) contributes all of them. Two dips separated by a mode that
+    is a local maximum do not share it: the separating maximum belongs to neither.
+    `depth` of a dip = mean of the two modes just outside its modes (one if it is at the end) minus its minimum:
+    how far the dip lies below its immediate surroundings (the prominence is the larger-scale measure; depth <=
+    prominence is not guaranteed).
+
+    Limits: the first and the last mode of the searched range cannot be a minimum (a minimum needs a neighbour on
+    both sides): a curve that falls towards the last mode has no dip there. A curve that is noisy at the level of
+    `prominence` gives spurious dips; the threshold is a user choice, not a significance test. `search` = (first,
+    last) restricts the modes that may be minima to that range (inclusive, zero-based; the rest of the curve is
+    still used for the prominence).
+
+    Returns dict (zero-based mode indices, dips ordered by mode index; n_dips = len(minimum)):
+      modes (n,)      all modes belonging to a dip, ascending        mode_dip (n,)  the dip of each of them
+      minimum, first, last (n_dips,)  lowest mode of the dip, first / last mode of its modes (first = last = minimum for one)
+      left_base, right_base (n_dips,) modes of the two shoulders that define the prominence
+      value, depth, prominence (n_dips,)
+      curve, prominence_threshold, rel_height, search   the input and parameters (saved with the result)
+    """
+    from scipy.signal import find_peaks
+    y = np.asarray(curve, dtype=float).ravel()
+    K = len(y)
+    lo, hi = (0, K - 1) if search is None else (max(int(search[0]), 0), min(int(search[1]), K - 1))
+    if K < 3 or not np.isfinite(y).all():
+        return _no_dips(y, lo, hi, prominence, rel_height)
+    peaks, props = find_peaks(-y, prominence=prominence, plateau_size=1)
+    keep = (props["left_edges"] >= lo) & (props["left_edges"] <= hi) if len(peaks) else np.zeros(0, bool)
+    peaks = props["left_edges"][keep]
+    prom, lb, rb = props["prominences"][keep], props["left_bases"][keep], props["right_bases"][keep]
+    if len(peaks) == 0:
+        return _no_dips(y, lo, hi, prominence, rel_height)
+    order = np.argsort(peaks)
+    peaks, prom, lb, rb = peaks[order], prom[order], lb[order], rb[order]
+
+    first, last, modes, mode_dip = [], [], [], []
+    for i, p in enumerate(peaks):
+        level = y[p] + rel_height * prom[i]
+        f = p
+        while f - 1 >= 0 and y[f - 1] <= level:
+            f -= 1
+        l = p
+        while l + 1 < K and y[l + 1] <= level:
+            l += 1
+        first.append(f)
+        last.append(l)
+    # cut regions at the separating maximum of neighbouring dips (the maximum belongs to neither)
+    for i in range(len(peaks) - 1):
+        a, b = peaks[i], peaks[i + 1]
+        sep = a + int(np.argmax(y[a:b + 1]))
+        if last[i] >= sep:
+            last[i] = max(sep - 1, a)
+        if first[i + 1] <= sep:
+            first[i + 1] = min(sep + 1, b)
+    depth = np.empty(len(peaks))
+    for i, p in enumerate(peaks):
+        nb = [y[first[i] - 1]] if first[i] > 0 else []
+        nb += [y[last[i] + 1]] if last[i] < K - 1 else []
+        depth[i] = np.mean(nb) - y[p]
+        modes += list(range(first[i], last[i] + 1))
+        mode_dip += [i] * (last[i] - first[i] + 1)
+    return {"modes": np.array(modes, dtype=int), "mode_dip": np.array(mode_dip, dtype=int),
+            "minimum": peaks.astype(int), "first": np.array(first, dtype=int), "last": np.array(last, dtype=int),
+            "left_base": lb.astype(int), "right_base": rb.astype(int), "value": y[peaks], "depth": depth,
+            "prominence": prom, "curve": y, "prominence_threshold": float(prominence),
+            "rel_height": float(rel_height), "search": np.array([lo, hi])}
+
+
+# ------------------------------------------------------------
 # Driver
 # ------------------------------------------------------------
 
-def _analyze(u, masses, windows, cfg, partners=None, position=None):
-    local = local_pca(u, masses, windows=windows, store_eigenvectors=True, position=position)
+def _analyze(u, masses, windows, cfg, partners=None, position=None, local=None):
+    if local is None:
+        local = local_pca(u, masses, windows=windows, store_eigenvectors=True, position=position)
     glob = global_reference(u, masses, cfg["n_global_modes"])
     comp = compare_local_to_global(local, glob, cfg["subspace_dims"], cfg["n_compare_modes"])
     cons = overlap_consistency(local, cfg["consistency_offsets"], cfg["n_consistency_modes"],
@@ -772,7 +1009,8 @@ def local_pca_analysis(u, masses=None, window_size=15, step=1, windows=None,
                        n_global_modes=20, subspace_dims=(1, 3, 5, 10), n_compare_modes=10,
                        consistency_offsets=(1, 2, 4, 7, 10), n_consistency_modes=None,
                        track_threshold=0.8, min_shared_weight=0.5, t_eff=None,
-                       n_null=0, null_quantile=0.95, seed=0, keep_eigenvectors=True):
+                       n_null=0, null_quantile=0.95, seed=0, keep_eigenvectors=True,
+                       dip_prominence=None, dip_rel_height=0.5, dip_search=None):
     """
     Moving-window local PCA next to the full-system PCA (see the file header for every definition).
 
@@ -797,10 +1035,16 @@ def local_pca_analysis(u, masses=None, window_size=15, step=1, windows=None,
     n_null, null_quantile, seed : number of shifted-column null runs of the whole analysis and the
         quantile stored (0 = none). The null re-runs everything: about as long as the analysis, each.
     keep_eigenvectors : keep local["eigenvectors_mw"] in the result.
+    dip_prominence, dip_rel_height, dip_search : detect_participation_dips() on the median n_part curve of the
+        windows (None: no detection). The detected modes are then always included in the comparison with the
+        global modes, the consistency analysis and the tracking, also beyond n_compare_modes /
+        n_consistency_modes (both are raised to the highest detected mode + 1, in the data and in every null run).
 
-    Returns dict: windows, position, windows_info (mode, centers, center_positions, partners), local, global,
-    comparison, consistency, tracking, summary,
-    null (dict of (n_null, ...) arrays with the keys of `summary` + quantile, or None), params,
+    Returns dict: windows, position, windows_info (mode, centers, center_positions, partners, spatial_order, box), local, global,
+    comparison, consistency, tracking, summary (window means), summary_median (window medians of the curves that
+    are drawn as medians, summarize_median), dips (detect_participation_dips(), or None),
+    null (dict of (n_null, ...) arrays with the keys of `summary` + quantile, plus "window_median" with the keys of
+    summary_median; None without null), params,
     statistics (n_frames, n_coords, coords_per_frame, mp_edges, mp_edges_teff, window geometry).
     """
     u = np.asarray(u, dtype=float)
@@ -829,20 +1073,35 @@ def local_pca_analysis(u, masses=None, window_size=15, step=1, windows=None,
     windows = np.asarray(windows, dtype=int)
     position = None if centers is None else centers          # x axis of the heatmaps: centre atom index
 
-    local, glob, comp, cons, trk = _analyze(u, masses, windows, cfg, partners, position)
+    K = windows.shape[1] * D
+    local = local_pca(u, masses, windows=windows, store_eigenvectors=True, position=position)
+    dips = None
+    if dip_prominence is not None:
+        dips = detect_participation_dips(np.median(local["n_participating"], axis=0), dip_prominence,
+                                         dip_rel_height, dip_search)
+        if len(dips["modes"]):                       # the detected modes must be computed, not only the first n
+            need = min(int(dips["modes"].max()) + 1, K)
+            cfg["n_compare_modes"] = max(cfg["n_compare_modes"], need)
+            cfg["n_consistency_modes"] = max(cfg["n_consistency_modes"], need)
+    cfg["n_compare_modes"] = min(cfg["n_compare_modes"], K)
+    cfg["n_consistency_modes"] = min(cfg["n_consistency_modes"], K)
+
+    local, glob, comp, cons, trk = _analyze(u, masses, windows, cfg, partners, position, local=local)
     summary = summarize(local, comp, cons, trk, min_shared_weight)
-    K = local["n_coords"]
+    summary_median = summarize_median(local, comp)
 
     null = None
     if n_null > 0:
         rng = np.random.default_rng(seed)
         flat = u.reshape(T, N * D)
-        sums = []
+        sums, meds = [], []
         for _ in range(n_null):
             un = _shift_columns(flat, rng).reshape(T, N, D)
             lo, _, co, cs, tr = _analyze(un, masses, windows, cfg, partners, position)
             sums.append(summarize(lo, co, cs, tr, min_shared_weight))
+            meds.append(summarize_median(lo, co))
         null = {k: np.stack([s[k] for s in sums]) for k in summary}
+        null["window_median"] = {k: np.stack([m[k] for m in meds]) for k in summary_median}
         null["quantile"] = null_quantile
         null["n_null"] = n_null
 
@@ -855,9 +1114,12 @@ def local_pca_analysis(u, masses=None, window_size=15, step=1, windows=None,
              "n_windows_disjoint": N // windows.shape[1]}
     info = {"mode": mode, "centers": centers, "partners": partners,
             "center_positions": None if centers is None else np.asarray(mean_positions, float)[centers]}
+    if centers is not None:                                  # spatially organised heat map axis (spatial_window_order)
+        info["spatial_order"] = spatial_window_order(info["center_positions"], box)
+        info["box"] = np.asarray(box, float)
     return {"windows": windows, "position": local["position"], "windows_info": info, "local": local,
             "global": glob, "comparison": comp, "consistency": cons, "tracking": trk, "summary": summary,
-            "null": null, "statistics": stats,
+            "summary_median": summary_median, "dips": dips, "null": null, "statistics": stats,
             "params": dict(cfg, window_size=windows.shape[1], step=step, seed=seed, window_mode=mode,
                            mass_weighted=masses is not None)}
 
@@ -882,9 +1144,11 @@ def print_local_pca(res):
     print(f"  {'interlacing  max(lambda_w/lambda) - 1':<46}{comp['interlacing_violation']:.3g}   (<= 0 up to rounding, any data)")
     print(f"  {'variance share of a window (median)':<46}{np.nanmedian(comp['variance_share']):.2e}   (uniform: {p['window_size'] / st['n_atoms']:.2e})")
     nc = comp["overlap_matrix"].shape[1]
-    head = f"\n  local mode vs {res['global']['eigenvectors'].shape[1]} leading global modes (window medians; null = {q}% of the window average)" \
+    nmed = (null or {}).get("window_median") or null          # null of a window MEDIAN is a median (summarize_median)
+    dips = res.get("dips")
+    head = f"\n  local mode vs {res['global']['eigenvectors'].shape[1]} leading global modes (window medians; null = {q}% of its runs, also window medians)" \
         if null is not None else f"\n  local mode vs {res['global']['eigenvectors'].shape[1]} leading global modes (window medians)"
-    print(head + "; 'chain' / 'found' = mean over windows, like its null")
+    print(head + "; 'chain' / 'found' = mean over windows, like its null; * = detected dip")
     lab = "found" if spatial else "chain"
     cols = f"  {'n':>3}{'lambda_w':>11}{'n_part':>8}{'best ov.':>10}{'explained':>11}{lab:>8}"
     if null is not None:
@@ -895,13 +1159,14 @@ def print_local_pca(res):
     ov = np.median(comp["overlap_best"], axis=0)
     ex = np.nanmedian(comp["explained_fraction"], axis=0)
     ch = np.mean(res["tracking"]["chain_length"], axis=0)          # mean over windows: the null is a mean too
-    for n in sorted({0, 1, 2, 4, nc - 1}):
+    dip_modes = set() if dips is None else {int(m) for m in dips["modes"]}
+    for n in sorted({0, 1, 2, 4, nc - 1} | dip_modes):
         if n >= nc:
             continue
-        row = f"  {n:>3}{lam[n]:>11.3g}{npart[n]:>8.1f}{ov[n]:>10.2f}{ex[n]:>11.2f}{ch[n]:>8.1f}"
+        row = f"  {n:>3}{'*' if n in dip_modes else ' '}{lam[n]:>10.3g}{npart[n]:>8.1f}{ov[n]:>10.2f}{ex[n]:>11.2f}{ch[n]:>8.1f}"
         if null is not None:
-            row += (f"{np.quantile(null['overlap_best'][:, n], null['quantile']):>12.2f}"
-                    f"{np.quantile(null['explained_fraction'][:, n], null['quantile']):>12.2f}"
+            row += (f"{np.quantile(nmed['overlap_best'][:, n], null['quantile']):>12.2f}"
+                    f"{np.quantile(nmed['explained_fraction'][:, n], null['quantile']):>12.2f}"
                     f"{np.median(null['chain_length'][:, n]):>12.1f}")
         print(row)
     print(f"\n  leading M-dimensional eigenspaces, local vs restricted global (window medians)")
@@ -913,8 +1178,8 @@ def print_local_pca(res):
         row = (f"  {M:>3}{np.nanmedian(comp['subspace_overlap'][:, i]):>10.2f}{np.nanmedian(comp['capture_ratio'][:, i]):>10.2f}"
                f"{comp['subspace_random'][i]:>9.2f}")
         if null is not None:
-            row += (f"{np.quantile(null['subspace_overlap'][:, i], null['quantile']):>12.2f}"
-                    f"{np.quantile(null['capture_ratio'][:, i], null['quantile']):>11.2f}")
+            row += (f"{np.quantile(nmed['subspace_overlap'][:, i], null['quantile']):>12.2f}"
+                    f"{np.quantile(nmed['capture_ratio'][:, i], null['quantile']):>11.2f}")
         print(row)
     if spatial:
         print(f"\n  found = 1 + number of the {res['tracking']['max_rank']} nearest windows (by centre distance) in which the mode is found again"
@@ -938,5 +1203,39 @@ def print_local_pca(res):
         print(row)
     if spatial:
         print("  rank j = the j-th nearest other window centre (the nearest windows share the most atoms).")
+    print_dips(res)
+    print_null_band_widths(res)
     print("  Windows share frames and atoms; agreement between them is not independent evidence."
           "\n  Local modes are modes of the window's own covariance, not global modes (see the header of local_pca.py).")
+
+
+def print_dips(res):
+    """Dips of the median participation curve (detect_participation_dips)."""
+    d = res.get("dips")
+    if d is None:
+        return
+    p = res["params"]
+    print(f"\n  dips of the median n_part curve (prominence >= {d['prominence_threshold']:g} atoms, modes within "
+          f"{d['rel_height']:g} x prominence of the minimum; zero-based local mode index)")
+    if len(d["minimum"]) == 0:
+        print("  none")
+        return
+    print(f"  {'dip':>4}{'minimum':>9}{'modes':>10}{'n_part':>8}{'depth':>8}{'prominence':>12}")
+    for i, m in enumerate(d["minimum"]):
+        rng_ = f"{d['first'][i]}" if d["first"][i] == d["last"][i] else f"{d['first'][i]}-{d['last'][i]}"
+        print(f"  {i:>4}{m:>9}{rng_:>10}{d['value'][i]:>8.2f}{d['depth'][i]:>8.2f}{d['prominence'][i]:>12.2f}")
+    print(f"  comparison / consistency computed for modes 0..{p['n_compare_modes'] - 1} (/ {p['n_consistency_modes'] - 1})")
+
+
+def print_null_band_widths(res):
+    """Width of the shifted-column null band against the 5-95 % band over windows (null_band_diagnostics)."""
+    rows = null_band_diagnostics(res)
+    if not rows:
+        return
+    print("\n  shifted-column null band (median to upper quantile of its runs) against the 5-95 % band over windows")
+    print(f"  {'curve (median over modes)':<26}{'null width':>11}{'window width':>14}{'ratio':>8}{'max % of axis':>15}")
+    for r in rows:
+        print(f"  {r['key'] + (' (decades)' if r['log10'] else ''):<26}{r['null_width']:>11.3g}{r['window_width']:>14.3g}{r['ratio']:>8.3f}"
+              f"{100 * r['axis_fraction']:>14.2f}%" + ("" if r["visible"] else "   thinner than a line (edge lines drawn)"))
+    print("  The null is the run-to-run spread of a statistic averaged over all windows, the blue band the spread"
+          "\n  between windows: a narrow null band is a result (the window average is well determined), not a plotting error.")

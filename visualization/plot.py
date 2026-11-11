@@ -1600,8 +1600,22 @@ def plot_pca_convergence(res, save_path=None):
 def _window_xlabel(res):
     """x axis label of the window list: centre atom index (neighbourhood windows) or mean atom index (index windows)."""
     if res["params"].get("window_mode") == "neighborhood":
-        return "window centre (atom index; not a spatial order)"
+        return "window centre (atom index; not a spatial order)"       # only for results without a spatial order
     return "window position (mean atom index)"
+
+
+def _window_axis(res, data):
+    """
+    Columns (windows) of a window-by-mode array in the order of the heat map's horizontal axis, with that axis.
+    Neighbourhood windows: ordered along a Hilbert curve through the centre positions
+    (local_pca.spatial_window_order; x = rank), so adjacent columns are windows close in space. Index windows,
+    or a result without the order: the given order, x = window position. Returns (data, x, xlabel).
+    """
+    order = res["windows_info"].get("spatial_order")
+    if order is None or res["params"].get("window_mode") != "neighborhood":
+        return data, res["position"], _window_xlabel(res)
+    return (np.asarray(data)[order], np.arange(len(order)),
+            "window centres ranked along a Hilbert curve (adjacent = neighbours)")
 
 
 def _heatmap(ax, data, position, cmap="Blues", vmin=None, vmax=None, label="", title="", n_rows=None,
@@ -1616,61 +1630,153 @@ def _heatmap(ax, data, position, cmap="Blues", vmin=None, vmax=None, label="", t
     ax.get_figure().colorbar(im, ax=ax, label=label)
 
 
-def _band(ax, x, pct, color, label, ls="-"):
-    """Median line and 5-95 % band of a (3, len(x)) percentile array."""
-    ax.fill_between(x, pct[0], pct[2], color=color, alpha=0.18, lw=0)
+def _band(ax, x, pct, color, label, ls="-", band_label="windows, 5-95 %"):
+    """Median line (legend entry `label`) and 5-95 % band (legend entry `band_label`) of a (3, len(x)) percentile array."""
+    ax.fill_between(x, pct[0], pct[2], color=color, alpha=0.18, lw=0, label=band_label)
     ax.plot(x, pct[1], color=color, lw=1.5, ls=ls, label=label)
+
+
+_DIP = "#7b3fb8"      # detected participation dips: one colour in every plot that shows the local mode index
+
+
+def _null_band(ax, x, med, high, label, q=None):
+    """
+    Shifted-column null, median (solid) to upper quantile (dashed) of its runs, shaded in between and drawn
+    ABOVE the window band. The null is the run-to-run spread of a window-aggregated statistic and is often much
+    narrower than the spread between windows (local_pca.null_band_diagnostics): both boundaries are drawn as lines at
+    their true values, so a band thinner than a line is still visible and is not made wider; the legend gives its
+    largest width.
+    """
+    x, med, high = np.asarray(x), np.asarray(med), np.asarray(high)
+    w = float(np.nanmax(high - med)) if len(med) else 0.0
+    ax.fill_between(x, med, high, color="0.45", alpha=0.45, lw=0, zorder=3, label=f"{label}: band, width <= {w:.2g}")
+    ax.plot(x, med, color="0.25", lw=1.0, zorder=3.1, label="null median (solid)")
+    ax.plot(x, high, color="0.25", lw=1.0, ls=(0, (3, 2)), zorder=3.1,
+            label="null upper quantile (dashed)" if q is None else f"null {q}% (dashed)")
+
+
+def _mark_dips(ax, res, axis="x", n_shown=None, legend=False, labels=True):
+    """
+    Mark the modes of the dips of the median participation curve (local_pca.detect_participation_dips), every
+    dip in the same colour: axis="x" vertical lines (the horizontal axis is the local mode index), axis="y"
+    horizontal lines (the vertical axis is the mode index; heat maps). The minimum of a dip is the stronger line
+    with its mode index written next to it; the other modes of a dip that spans adjacent modes are thinner lines
+    inside a shaded span (the modes within rel_height x prominence of the minimum). Every element has a legend
+    entry (labels=True; legend=True also draws the legend, for panels that have none of their own). Modes >= n_shown
+    (not drawn in this panel) are skipped, so the axis range is not changed.
+    """
+    d = res.get("dips")
+    if d is None or len(d["modes"]) == 0:
+        return
+    seen = set()
+
+    def lab(key, text):
+        if not labels or key in seen:
+            return None
+        seen.add(key)
+        return text
+    bbox = dict(boxstyle="round,pad=0.1", fc="white", ec="none", alpha=0.75)
+    for i, m in enumerate(d["minimum"]):
+        a, b = int(d["first"][i]), int(d["last"][i])
+        if axis == "x" and b > a and (n_shown is None or a < n_shown):
+            ax.axvspan(a - 0.5, b + 0.5, color=_DIP, alpha=0.08, lw=0, zorder=0,
+                       label=lab("span", f"dip region (within {d['rel_height']:g} x prominence)"))
+        for k in range(a, b + 1):
+            if n_shown is not None and k >= n_shown:
+                continue
+            is_min = k == m
+            kw = dict(color=_DIP, lw=1.1 if is_min else 0.6, ls="-." if axis == "x" else "--", alpha=0.9, zorder=2.5,
+                      label=lab("min" if is_min else "other",
+                                "dip minimum (number = mode)" if is_min else "other modes of the dip"))
+            (ax.axvline if axis == "x" else ax.axhline)(k, **kw)
+        if n_shown is not None and m >= n_shown:
+            continue
+        if axis == "x":
+            ax.text(m, 0.015, str(int(m)), transform=ax.get_xaxis_transform(), ha="center", va="bottom", fontsize=7,
+                    color=_DIP, bbox=bbox, zorder=4)
+        else:
+            ax.text(0.012, m, str(int(m)), transform=ax.get_yaxis_transform(), ha="left", va="center", fontsize=7,
+                    color=_DIP, bbox=bbox, zorder=4)
+    if legend:
+        ax.legend(fontsize=7, loc="upper right", framealpha=0.85)
+
+
+def _legend_on_top(ax, ncol=2, fontsize=7):
+    """
+    Legend in head room above the data: the vertical axis is extended (log axes: in log space) by what the legend
+    needs, and the ticks above the data are dropped, so the legend, which names every element of the panel, covers
+    no curve.
+    """
+    h, l = ax.get_legend_handles_labels()
+    rows = -(-len(l) // ncol)
+    f = min(0.06 + 0.052 * rows, 0.6)                 # fraction of the axis height reserved for the legend
+    lo, hi = ax.get_ylim()
+    ticks = [t for t in ax.get_yticks() if lo - 1e-12 <= t <= hi + 1e-12]
+    if ax.get_yscale() == "log":
+        new = 10 ** (np.log10(lo) + (np.log10(hi) - np.log10(lo)) / (1 - f))
+    else:
+        new = lo + (hi - lo) / (1 - f)
+    ax.set_ylim(lo, new)
+    ax.set_yticks(ticks)
+    ax.legend(loc="upper center", ncol=ncol, fontsize=fontsize, framealpha=0.9)
 
 
 def plot_local_pca_spectra(res, eigenvalue_unit="amu·Å²", save_path=None):
     """
-    Local eigenvalue spectra along the window list (centre atom index for neighbourhood windows; the list is not a
-    spatial order). `res` = local_pca.local_pca_analysis(...).
+    Local eigenvalue spectra of all windows. `res` = local_pca.local_pca_analysis(...). The heat maps (top) list the
+    windows in a spatial order for neighbourhood windows (Hilbert curve through the centre positions, _window_axis),
+    in atom-index order for index windows.
 
-    Top left    log10 of the local eigenvalues lambda^w_n: x = window position (mean atom index), y = local mode
+    Top left    log10 of the local eigenvalues lambda^w_n: x = window (neighbourhood windows: ranked along a Hilbert
+                curve through the centre positions, see local_pca.spatial_window_order), y = local mode
                 index (0 = softest), colour = log10(lambda^w_n) in `eigenvalue_unit`.
     Top right   the same spectra divided by the window's total variance (the shape of the spectrum, independent
-                of how much the atoms of the window vibrate): lambda^w_n / trace C_w.
+                of how much the atoms of the window vibrate): colour = log10(lambda^w_n / trace C_w) (log scale,
+                as the fractions span orders of magnitude and a linear scale is white beyond the softest modes).
     Bottom left Median and 5-95 % band over the windows of lambda^w_n (blue), the full-system eigenvalues lambda_n
                 of the same rank (black): lambda^w_n <= lambda_n always (Cauchy interlacing) so this is a bound, not a result.
     Bottom right Normalised spectrum lambda^w_n / trace C_w: windows (blue), shifted-column null (grey, median to upper
-                quantile of its window average: independent coordinates, same variance and autocorrelation),
+                quantile over null runs of the window MEDIAN: independent coordinates, same variance and autocorrelation),
                 and the Marchenko-Pastur range of pure noise for K coordinates and T frames (dotted; dashed with
                 T_eff if given). Local spectra inside the grey/dotted range are not distinguishable from sampling noise.
     """
     from analysis.soft_modes.local_pca import local_pca_band_statistics
     loc, st = res["local"], res["statistics"]
-    pos = res["position"]
     K = loc["n_coords"]
     n = np.arange(K)
     bands = local_pca_band_statistics(res)
     lam = np.maximum(loc["eigenvalues"], 1e-300)
     fig, axs = plt.subplots(2, 2, figsize=(14, 9))
-    _heatmap(axs[0, 0], np.log10(lam), pos, label=rf"$\log_{{10}}\lambda^w_n$ ({eigenvalue_unit})",
+    img, xw, xlab = _window_axis(res, np.log10(lam))
+    _heatmap(axs[0, 0], img, xw, label=rf"$\log_{{10}}\lambda^w_n$ ({eigenvalue_unit})",
              title=f"(a) local eigenvalues, {res['params']['window_size']}-atom "
                    f"{'neighbourhood ' if res['params'].get('window_mode') == 'neighborhood' else ''}windows, step {res['params']['step']}",
-             xlabel=_window_xlabel(res))
+             xlabel=xlab)
+    _mark_dips(axs[0, 0], res, axis="y", legend=True)
     frac = loc["eigenvalues"] / np.maximum(loc["total_variance"], 1e-300)[:, None]
-    _heatmap(axs[0, 1], frac, pos, label=r"$\lambda^w_n\,/\,\mathrm{tr}\,C_w$", title="(b) spectrum shape",
-             xlabel=_window_xlabel(res))
+    img, xw, xlab = _window_axis(res, np.log10(np.maximum(frac, 1e-300)))     # log scale: the fractions span decades
+    _heatmap(axs[0, 1], img, xw, label=r"$\log_{10}(\lambda^w_n\,/\,\mathrm{tr}\,C_w)$",
+             title="(b) spectrum shape (log scale)", xlabel=xlab)
+    _mark_dips(axs[0, 1], res, axis="y", legend=True)
 
     ax = axs[1, 0]
-    _band(ax, n, bands["eigenvalues"], _SERIES[0], "local, median and 5-95% of windows")
+    _band(ax, n, bands["eigenvalues"], _SERIES[0], "local, median over windows")
     lg = res["global"]["eigenvalues"][:K]
     ax.plot(np.arange(len(lg)), lg, color="k", lw=1.3, label=r"full system $\lambda_n$ (upper bound)")
     ax.set_yscale("log")
     ax.set_xlabel("mode index n  (0 = softest)")
     ax.set_ylabel(rf"eigenvalue ({eigenvalue_unit})")
     ax.set_title("(c) local vs full-system eigenvalues", fontsize=10)
-    ax.legend(fontsize=8)
+    _mark_dips(ax, res, n_shown=K)
+    _legend_on_top(ax, ncol=2)
     _style(ax)
 
     ax = axs[1, 1]
-    _band(ax, n, bands["spectrum_fraction"], _SERIES[0], "windows, median and 5-95%")
+    _band(ax, n, bands["spectrum_fraction"], _SERIES[0], "windows, median")
     if res["null"] is not None:
         q = int(round(100 * res["null"]["quantile"]))
-        ax.fill_between(n, bands["null_median"]["spectrum_fraction"], bands["null_high"]["spectrum_fraction"],
-                        color="0.6", alpha=0.5, label=f"shifted-column null (median to {q}% of window average)")
+        _null_band(ax, n, bands["null_median"]["spectrum_fraction"], bands["null_high"]["spectrum_fraction"],
+                   f"shifted-column null (window median)", q=q)
     for edges, ls, lab in ((st["mp_edges"], ":", f"white-noise range, T = {st['n_frames']}"),
                            (st["mp_edges_teff"], "--",
                             None if st["mp_edges_teff"] is None else rf"white-noise range, $T_{{eff}}$ = {st['t_eff']:.0f}")):
@@ -1683,7 +1789,8 @@ def plot_local_pca_spectra(res, eigenvalue_unit="amu·Å²", save_path=None):
     ax.set_xlabel("local mode index n  (0 = softest)")
     ax.set_ylabel(r"$\lambda^w_n\,/\,\mathrm{tr}\,C_w$")
     ax.set_title("(d) spectrum shape against sampling noise (lines: upper / lower edge)", fontsize=10)
-    ax.legend(fontsize=8)
+    _mark_dips(ax, res, n_shown=K)
+    _legend_on_top(ax, ncol=2)
     _style(ax)
     fig.suptitle(f"{st['n_windows']} overlapping windows, {K} coordinates each, {st['n_frames']} frames "
                  f"(coordinates/frames = {st['coords_per_frame']:.2f}). Windows share frames and atoms: "
@@ -1697,47 +1804,105 @@ def plot_local_participation(res, save_path=None):
     `res` = local_pca.local_pca_analysis(...). PR = 1 / (n sum_i p_i^2) lies in [1/n, 1]; the effective number of
     atoms n_part = PR * n lies in [1, n] and is what is drawn, so windows of different size are comparable.
 
-    Left   n_part of every local mode along the atom index (x: window position, y: local mode index).
-    Right  median and 5-95 % band over windows of n_part against mode index (blue); shifted-column null
-           (grey, median to upper quantile of the window average of PR times n); dashed = n (fully delocalised
-           over the window). Mean n_part of the leading full-system modes is printed in the legend: n_part there is
-           an effective number of atoms out of N, not comparable to a number out of n.
+    Left   n_part of every local mode (x: windows, spatially ranked as in plot_local_pca_spectra; y: local mode index).
+    Top right  median and 5-95 % band over windows of n_part against mode index (blue); shifted-column null (grey:
+           median and upper quantile over null runs of the same statistic, the window MEDIAN of n_part, so both
+           curves are medians; drawn above the blue band); dashed = n (fully delocalised over the window). Mean n_part
+           of the leading full-system modes is printed in the title: n_part there is an effective number of atoms
+           out of N, not comparable to a number out of n.
+    Bottom right  the same curves relative to the null median: observed median minus null median (blue) and the
+           null band (grey), on an axis scaled to them. The null band is the run-to-run spread of a statistic
+           averaged over all windows, which is far narrower than the spread between windows, so on the axis of the
+           top panel it is thinner than a line.
+    Purple: dips of the median curve (local_pca.detect_participation_dips), if `res` has them.
     """
     from analysis.soft_modes.local_pca import local_pca_band_statistics
     loc, glob = res["local"], res["global"]
     n_at = loc["n_atoms_window"]
     K = loc["n_coords"]
     bands = local_pca_band_statistics(res)
-    fig, axs = plt.subplots(1, 2, figsize=(14, 4.8))
-    _heatmap(axs[0], loc["n_participating"], res["position"], vmin=1, vmax=n_at,
+    has_null = res["null"] is not None
+    fig = plt.figure(figsize=(14, 5.6 if has_null else 4.8))
+    gs = fig.add_gridspec(2 if has_null else 1, 2, height_ratios=[3, 1.15] if has_null else [1])
+    ax0 = fig.add_subplot(gs[:, 0])
+    ax = fig.add_subplot(gs[0, 1])
+    img, xw, xlab = _window_axis(res, loc["n_participating"])
+    _heatmap(ax0, img, xw, vmin=1, vmax=n_at,
              label=r"effective number of atoms  $n_{part}$ = PR$\cdot n$",
-             title="(a) participation of the local modes", n_rows=K, xlabel=_window_xlabel(res))
-    ax = axs[1]
+             title="(a) participation of the local modes", n_rows=K, xlabel=xlab)
+    _mark_dips(ax0, res, axis="y", legend=True)
     n = np.arange(K)
-    _band(ax, n, bands["n_participating"], _SERIES[0], "windows, median and 5-95%")
-    if res["null"] is not None:
+    _band(ax, n, bands["n_participating"], _SERIES[0], "windows, median")
+    if has_null:
         q = int(round(100 * res["null"]["quantile"]))
-        ax.fill_between(n, bands["null_median"]["participation"] * n_at, bands["null_high"]["participation"] * n_at,
-                        color="0.6", alpha=0.5, label=f"shifted-column null (median to {q}%)")
+        nm, nh = bands["null_median"]["n_participating"], bands["null_high"]["n_participating"]
+        _null_band(ax, n, nm, nh, f"shifted-column null", q=q)
     ax.axhline(n_at, color="0.3", ls="--", lw=1, label=f"n = {n_at} (delocalised over the window)")
     ax.axhline(1, color="0.3", ls=":", lw=1, label="1 (single atom)")
-    ax.set_xlabel("local mode index n  (0 = softest)")
     ax.set_ylabel(r"$n_{part}$ = PR$\cdot n$")
     ax.set_title(f"(b) by mode index  (full-system modes 0-{min(4, len(glob['n_participating']) - 1)}: "
                  f"n_part {glob['n_participating'][0]:.0f}-{glob['n_participating'][:5].max():.0f} of {glob['n_atoms']} atoms)",
                  fontsize=9)
     ax.set_ylim(0, n_at * 1.08)
-    ax.legend(fontsize=8, loc="lower center")
+    _mark_dips(ax, res, n_shown=K)
+    _legend_on_top(ax, ncol=2)
     _style(ax)
+    if has_null:
+        axr = fig.add_subplot(gs[1, 1], sharex=ax)
+        plt.setp(ax.get_xticklabels(), visible=False)
+        axr.plot(n, bands["n_participating"][1] - nm, color=_SERIES[0], lw=1.5, label="windows (median) - null median")
+        axr.fill_between(n, 0, nh - nm, color="0.45", alpha=0.45, lw=0, zorder=3, label="null band between them")
+        axr.plot(n, nh - nm, color="0.25", lw=1.0, ls=(0, (3, 2)), zorder=3.1, label=f"null {q}% - null median (dashed)")
+        axr.axhline(0, color="0.25", lw=1.0, zorder=3.1, label="null median = 0 (solid)")
+        _mark_dips(axr, res, n_shown=K, labels=False)        # same lines as in the panel above (shared axis)
+        axr.set_xlabel("local mode index n  (0 = softest)")
+        axr.set_ylabel(r"$\Delta n_{part}$", fontsize=9)
+        _legend_on_top(axr, ncol=2)
+        _style(axr)
+    else:
+        ax.set_xlabel("local mode index n  (0 = softest)")
     _save(fig, save_path, "local_pca_participation.png")
+
+
+def plot_global_participation(gp, save_path=None):
+    """
+    Effective number of atoms n_part = PR * N of every mode of the FULL-SYSTEM PCA against mode index (0 = softest,
+    largest variance): the full-system counterpart of the right panel of local_pca_participation.png.
+    `gp` = modes.participation_spectrum(...). N is the number of atoms of the whole system, so the
+    values are not comparable with the local ones (out of n); n_part = N would be a mode spread evenly over all
+    atoms, 1 a mode on a single atom. Log vertical axis: n_part spans orders of magnitude.
+    Grey: shifted-column null, median and upper quantile of its runs (collective modes removed, same variance and
+    autocorrelation per coordinate): what the same T frames give for modes that are noise. With T frames there are
+    only T-1 modes, so the null is noise-eigenvector participation at each rank. Modes whose n_part lies clearly
+    below the null are more localised than sampling noise; modes at it are not distinguishable from noise.
+    """
+    npart = np.asarray(gp["n_participating"])
+    N, T = gp["n_atoms"], gp["n_frames"]
+    n = np.arange(len(npart))
+    fig, ax = plt.subplots(figsize=(8.5, 5))
+    ax.plot(n, npart, color=_SERIES[0], lw=1.5, marker="o", ms=3, label=f"full system, {len(npart)} modes", zorder=2)
+    if gp.get("null_median") is not None:
+        q = int(round(100 * gp["quantile"]))
+        _null_band(ax, n, gp["null_median"], gp["null_high"], f"shifted-column null ({gp['n_null']} runs)", q=q)
+    ax.axhline(N, color="0.3", ls="--", lw=1, label=f"N = {N} (spread over all atoms)")
+    ax.axhline(1, color="0.3", ls=":", lw=1, label="1 (single atom)")
+    ax.set_yscale("log")
+    ax.set_xlabel("mode index n  (0 = softest)")
+    ax.set_ylabel(r"$n_{part}$ = PR$\cdot N$  (effective number of atoms)")
+    ax.set_title(f"Participation of the full-system PCA modes ({N} atoms, {T} frames)", fontsize=10)
+    _legend_on_top(ax, ncol=2)
+    _style(ax)
+    _save(fig, save_path, "participation_npart_3d.png")
 
 
 def plot_local_vs_global(res, save_path=None):
     """
     Local PCA against the full-system PCA of the same trajectory. `res` = local_pca.local_pca_analysis(...).
-    Blue = windows (median and 5-95 % over windows), grey = shifted-column null (median to upper quantile of the
-    window average), so the grey band is what chance gives for the same window size, frames and number of global
-    modes compared with.
+    Blue = windows (median and 5-95 % over windows), grey = shifted-column null (median to upper quantile over null
+    runs of the window MEDIAN, the same statistic as the blue line), so the grey band is what chance gives for the
+    same window size, frames and number of global modes compared with; it is the run-to-run spread of a statistic
+    averaged over all windows and therefore much narrower than the blue band. Purple: dips of the median n_part
+    curve (local_pca.detect_participation_dips), modes that the comparison therefore always covers.
 
     (a) lambda^w_n / lambda_n: local over full-system eigenvalue of the same rank. <= 1 for any data (Cauchy
         interlacing); it measures how much of the global mode's variance is inside the window.
@@ -1761,13 +1926,14 @@ def plot_local_vs_global(res, save_path=None):
 
     ax = axs[0, 0]
     Kc = comp["lambda_ratio"].shape[1]
-    _band(ax, np.arange(Kc), b["lambda_ratio"], _SERIES[0], "windows")
+    _band(ax, np.arange(Kc), b["lambda_ratio"], _SERIES[0], "windows, median")
     ax.axhline(1, color="0.3", ls="--", lw=1, label="interlacing bound")
     ax.set_yscale("log")
     ax.set_xlabel("mode index n  (0 = softest)")
     ax.set_ylabel(r"$\lambda^w_n\,/\,\lambda_n$")
     ax.set_title("(a) local / full-system eigenvalue of the same rank", fontsize=10)
-    ax.legend(fontsize=8)
+    _mark_dips(ax, res, n_shown=Kc)
+    _legend_on_top(ax, ncol=2)
     _style(ax)
 
     for ax, key, title, ylabel in (
@@ -1776,23 +1942,23 @@ def plot_local_vs_global(res, save_path=None):
             (axs[1, 0], "explained_fraction", f"(c) share of $\\lambda^w_n$ made of the {Kg} leading global modes",
              "explained fraction")):
         x = np.arange(nc)
-        _band(ax, x, b[key][:, :nc], _SERIES[0], "windows, median and 5-95%")
+        _band(ax, x, b[key][:, :nc], _SERIES[0], "windows, median")
         if has_null:
-            ax.fill_between(x, b["null_median"][key][:nc], b["null_high"][key][:nc], color="0.6", alpha=0.5,
-                            label=f"shifted-column null (median to {q}%)")
+            _null_band(ax, x, b["null_median"][key][:nc], b["null_high"][key][:nc], f"shifted-column null", q=q)
+        _mark_dips(ax, res, n_shown=nc)
         ax.set_ylim(0, 1.03)
         ax.set_xlabel("local mode index n  (0 = softest)")
         ax.set_ylabel(ylabel)
         ax.set_title(title, fontsize=10)
         ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-        ax.legend(fontsize=8, loc="lower left")
+        _legend_on_top(ax, ncol=2)
         _style(ax)
 
     ax = axs[1, 1]
     for key, color, ls, lab in (("subspace_overlap", _SERIES[0], "-", r"overlap $S_M$"),
                                 ("capture_ratio", _SERIES[1], "--", "variance capture ratio")):
-        ax.fill_between(dims, b[key][0], b[key][2], color=color, alpha=0.15, lw=0)
-        ax.plot(dims, b[key][1], color=color, ls=ls, lw=1.6, marker="o", ms=4, label=lab + " (median, 5-95%)")
+        ax.fill_between(dims, b[key][0], b[key][2], color=color, alpha=0.15, lw=0, label=lab + ", 5-95 % of windows")
+        ax.plot(dims, b[key][1], color=color, ls=ls, lw=1.6, marker="o", ms=4, label=lab + ", median")
         if has_null:
             ax.plot(dims, b["null_high"][key], color=color, ls=ls, lw=1, alpha=0.5, marker="_", ms=8,
                     label=f"null {q}%")
@@ -1802,7 +1968,7 @@ def plot_local_vs_global(res, save_path=None):
     ax.set_ylabel("overlap / ratio")
     ax.set_title("(d) leading eigenspaces: local vs restricted global", fontsize=10)
     ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-    ax.legend(fontsize=8, loc="lower left")
+    _legend_on_top(ax, ncol=2)
     _style(ax)
     fig.suptitle(f"Local ({res['params']['window_size']} atoms) vs full-system PCA, {st['n_frames']} frames. "
                  f"Local modes are not global modes, and both use the same frames.", fontsize=10, y=1.0)
@@ -1833,23 +1999,28 @@ def plot_local_consistency(res, save_path=None):
     q = int(round(100 * res["null"]["quantile"])) if has_null else None
     S = res["summary"]
     nm = S["consistency_matched"].shape[1]
-    show = sorted({0, 1, 2, 4, min(9, nm - 1)} & set(range(nm)))
+    dips = res.get("dips")
+    dip_min = [] if dips is None else [int(m) for m in dips["minimum"] if m < nm]
+    show = sorted(({0, 1, 2, 4, min(9, nm - 1)} & set(range(nm))) - set(dip_min))
     cols = dict(zip(show, _ranked_colors(len(show))[::-1]))
     fig, axs = plt.subplots(1, 3, figsize=(16, 4.8))
 
     ax = axs[0]
     for n in show:
         ax.plot(shared, S["consistency_matched"][:, n], color=cols[n], lw=1.4, marker="o", ms=3, label=f"mode {n}")
+    for k, n in enumerate(dip_min):                       # detected dips: purple, dashed, labelled with the mode
+        ax.plot(shared, S["consistency_matched"][:, n], color=_DIP, lw=1.3, ls=("-.", ":", "--")[k % 3], marker="s", ms=3,
+                label=f"mode {n} (dip)")
     if has_null:
         nl = np.nanmean(res["null"]["consistency_matched"], axis=2)
-        ax.fill_between(shared, np.median(nl, axis=0), np.quantile(nl, res["null"]["quantile"], axis=0), color="0.6",
-                        alpha=0.5, label=f"null, mean over {nm} modes (median to {q}%)")
+        _null_band(ax, shared, np.median(nl, axis=0), np.quantile(nl, res["null"]["quantile"], axis=0),
+                   f"shifted-column null, mean over {nm} modes", q=q)
     ax.set_ylim(0, 1.03)
     ax.invert_xaxis()
     ax.set_xlabel("share of atoms common to both windows")
     ax.set_ylabel("matched restricted overlap")
     ax.set_title("(a) single modes, matched by maximum overlap", fontsize=10)
-    ax.legend(fontsize=8, loc="lower left")
+    _legend_on_top(ax, ncol=2)
     _style(ax)
 
     ax = axs[1]
@@ -1866,20 +2037,21 @@ def plot_local_consistency(res, save_path=None):
     ax.set_xlabel("share of atoms common to both windows")
     ax.set_ylabel("eigenspace overlap")
     ax.set_title("(b) leading eigenspaces", fontsize=10)
-    ax.legend(fontsize=8, loc="lower left")
+    _legend_on_top(ax, ncol=2)
     _style(ax)
 
     ax = axs[2]
     L = trk["chain_length"]
     n = np.arange(L.shape[1])
     pct = np.percentile(L, [5, 50, 95], axis=0)
-    _band(ax, n, pct, _SERIES[0], "windows, median and 5-95%")
+    _band(ax, n, pct, _SERIES[0], "windows, median")
     ax.plot(n, L.mean(axis=0), color=_SERIES[0], lw=1.4, ls="--", marker="o", ms=3, label="windows, mean")
     if has_null:
         ax.plot(n, np.median(res["null"]["chain_length"], axis=0), color="0.45", lw=1.4, ls="--", marker="s", ms=3,
                 label="null, mean over windows (median of runs)")
     ax.set_yscale("log")
     ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    _mark_dips(ax, res, n_shown=len(n))
     ax.set_xlabel("local mode index n  (0 = softest)")
     if trk.get("kind") == "neighbours":
         ax.set_ylabel(f"1 + nearest windows (of {trk['max_rank']}) in which the mode is found")
@@ -1887,8 +2059,74 @@ def plot_local_consistency(res, save_path=None):
     else:
         ax.set_ylabel("consecutive windows in which the mode is found again")
         ax.set_title(f"(c) chain length (overlap >= {trk['threshold']:g}, shift 1)", fontsize=10)
-    ax.legend(fontsize=8)
+    _legend_on_top(ax, ncol=2)
     _style(ax)
     fig.suptitle(f"Consistency across overlapping windows of {n_at} atoms ({st['n_windows']} windows, same "
                  f"{st['n_frames']} frames: not independent)", fontsize=10, y=1.0)
     _save(fig, save_path, "local_pca_consistency.png")
+
+
+# =============================================================
+# Modes at the dips of the participation curve (analysis/soft_modes/local_pca_dips.py)
+# The amplitude distributions of these modes are drawn with plot_mode_amplitude_grid (inv["amplitude_diag"]).
+# =============================================================
+
+_ELEMENT_COLORS = {"Zr": "#2a78d6", "Cu": "#eb6834"}
+
+
+def plot_dip_eigenvectors(inv, save_path=None):
+    """
+    Real-space eigenvectors (mass weighting undone) of the dip modes in the representative windows.
+    `inv` = local_pca_dips.investigate_dip_modes(...). Rows: detected mode; columns: window with low / median /
+    high n_part of that mode.
+
+    Every panel shows the atoms of ONE window projected on the plane of their largest extent (time-averaged
+    positions, minimum image, Å). Marker area = share of the eigenvector norm p_i = sum_d v_{i,d}^2 on the atom
+    (sum over the window = 1, so equal sharing is 1/n); colour = element; arrows = the projection of the
+    real-space eigenvector on that plane (same scale in a panel); black ring = the atom with the largest p_i.
+    The title gives the window, n_part and the largest share. The eigenvector sign is arbitrary.
+    """
+    panels = inv["panels"]
+    if not panels:
+        return
+    modes = list(inv["modes"])
+    classes = list(inv["classes"])
+    fig, axs_all = plt.subplots(len(modes) + 1, len(classes), figsize=(3.9 * len(classes), 3.6 * len(modes) + 0.9),
+                                squeeze=False, gridspec_kw={"height_ratios": [1] * len(modes) + [0.1 * len(modes) ** 0.5]})
+    axs, leg_axs = axs_all[:-1], axs_all[-1]
+    species = [str(x) for x in inv["environment"]["species"]]
+    colors = {sp: _ELEMENT_COLORS.get(sp, _SERIES[i % len(_SERIES)]) for i, sp in enumerate(species)}
+    for pn in panels:
+        ax = axs[modes.index(pn["mode"]), classes.index(pn["class"])]
+        xy, p, v = pn["xy"], pn["p"], pn["vxy"]
+        n = len(p)
+        col = [colors.get(str(sy), "0.5") for sy in pn["symbols"]]
+        ax.scatter(xy[:, 0], xy[:, 1], s=30 + 1500 * p, c=col, alpha=0.6, edgecolors="white", linewidths=0.6, zorder=2)
+        extent = max(np.ptp(xy[:, 0]), np.ptp(xy[:, 1]), 1e-9)
+        scale = 0.35 * extent / max(np.abs(v).max(), 1e-12)
+        ax.quiver(xy[:, 0], xy[:, 1], v[:, 0] * scale, v[:, 1] * scale, angles="xy", scale_units="xy", scale=1,
+                  color=col, width=0.012, zorder=3)
+        t = int(pn["top"][0])
+        ax.scatter(xy[t, 0], xy[t, 1], s=30 + 1500 * p[t], facecolors="none", edgecolors="k", linewidths=1.3, zorder=4)
+        tips = np.vstack([xy, xy + v * scale])
+        pad = 0.12 * max(np.ptp(tips[:, 0]), np.ptp(tips[:, 1]), 1e-9)
+        ax.set_xlim(tips[:, 0].min() - pad, tips[:, 0].max() + pad)
+        ax.set_ylim(tips[:, 1].min() - pad, tips[:, 1].max() + pad)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_title(f"mode {pn['mode']}, {pn['class']} n_part: window {pn['window']}\n"
+                     f"n_part = {pn['n_part']:.1f}, largest share {p[t]:.2f} ({pn['symbols'][t]}; equal: {1 / n:.2f})",
+                     fontsize=8)
+        ax.tick_params(labelsize=7)
+        _style(ax)
+    handles = [plt.Line2D([], [], marker="o", ls="", color=colors[sp], alpha=0.7, label=sp) for sp in species]
+    handles.append(plt.Line2D([], [], marker="o", ls="", mfc="none", mec="k", label="atom with the largest share"))
+    handles.append(plt.Line2D([], [], marker="o", ls="", color="0.6", ms=7, label="marker area = norm share p_i"))
+    handles.append(plt.Line2D([], [], marker=r"$\rightarrow$", ls="", color="0.3", ms=11,
+                              label="arrow = real-space displacement (projected)"))
+    for ax in leg_axs:
+        ax.axis("off")
+    leg_axs[len(classes) // 2].legend(handles=handles, loc="center", ncol=3, fontsize=8, frameon=False,
+                                      bbox_to_anchor=(0.5, 0.5))           # a row of its own: tight_layout leaves room
+    fig.suptitle("Real-space eigenvectors of the dip modes (axes in Å: plane of largest extent of the window's atoms)",
+                 fontsize=10, y=1.0)
+    _save(fig, save_path, "local_pca_dip_eigenvectors.png")

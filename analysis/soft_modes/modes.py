@@ -226,6 +226,44 @@ def participation_ratios(eigenvectors):
     return 1.0 / (N * np.sum(p ** 2, axis=0))
 
 
+def participation_spectrum(u, masses=None, n_null=0, null_quantile=0.95, seed=0):
+    """
+    Effective number of atoms n_part = PR * N of ALL non-zero modes (T-1 of them) of the full-system PCA, against
+    mode index (0 = softest): the full-system counterpart of the median n_part(n) curve of the local windows
+    (local_pca_participation.png, right panel). Same conventions as modes_from_displacements() (mass-weighted PCA,
+    real-space unit eigenvectors) and participation_ratios(); n_part lies in [1, N]: N = a mode spread evenly over
+    all atoms, 1 = a mode on a single atom. The values are out of N atoms and are not comparable with the local
+    ones (out of the n atoms of a window).
+
+    n_null > 0: the same on shifted-column data (every coordinate cyclically shifted in time by its own random
+    amount: per-coordinate variance and autocorrelation kept, collective modes removed), n_null runs; the null band
+    is the median and the null_quantile of those runs, mode by mode. With only T frames the mode index of the null
+    is the rank of a sampling-noise eigenvalue, so this is the n_part that localisation-free noise gives at each rank.
+
+    u : (T, N, D) centred displacements (compute_displacements()).
+    Returns dict: n_participating (T-1,), eigenvalues (T-1,), n_atoms, n_frames, null (n_null, T-1) or None,
+    null_median, null_high (T-1,) or None, quantile, n_null.
+    """
+    from analysis.soft_modes.pca_reliability import _shift_columns
+
+    u = np.asarray(u, dtype=float)
+    T, N, D = u.shape
+
+    def n_part(x):
+        m = modes_from_displacements(x, masses=masses, n_modes=T - 1)
+        return m["eigenvalues"], participation_ratios(m["eigenvectors"]) * N
+
+    lam, npart = n_part(u)
+    out = {"n_participating": npart, "eigenvalues": lam, "n_atoms": N, "n_frames": T, "null": None,
+           "null_median": None, "null_high": None, "quantile": null_quantile, "n_null": n_null}
+    if n_null > 0:
+        rng = np.random.default_rng(seed)
+        flat = u.reshape(T, N * D)
+        runs = np.stack([n_part(_shift_columns(flat, rng).reshape(T, N, D))[1] for _ in range(n_null)])
+        out.update(null=runs, null_median=np.median(runs, axis=0), null_high=np.quantile(runs, null_quantile, axis=0))
+    return out
+
+
 def atom_softness_scores(eigenvalues, eigenvectors, n_soft_modes=20,
                           pr_max=None, weight_by_eigenvalue=True,
                           pr_weight=False):

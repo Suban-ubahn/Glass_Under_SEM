@@ -40,7 +40,7 @@ TYPE_TO_RADIUS = {1: R_ZR, 2: R_CU}   # LAMMPS type → radius
 # Voxel grid
 # ------------------------------------------------------------
 
-VOXEL_EDGE = 0.3   # Å  — grid resolution for hole/occupancy fields
+VOXEL_EDGE = 0.33   # Å  — grid resolution for hole/occupancy fields
 
 # ------------------------------------------------------------
 # Hole detection — KDTree / voxel approach  (holes/kdtree.py)
@@ -169,9 +169,13 @@ LOCAL_PCA_WINDOW_MODE        = "neighborhood"  # "neighborhood": centre atom + n
 LOCAL_PCA_WINDOW_SIZE        = 30              # atoms per window (neighborhood: including the centre atom)
 LOCAL_PCA_STEP               = 1               # shift between windows (index) / spacing of the centre atom indices (neighborhood), in atoms
 LOCAL_PCA_N_GLOBAL_MODES     = 20              # leading global modes compared with
-LOCAL_PCA_SUBSPACE_DIMS      = (1, 3, 5, 10)   # eigenspace dimensions M compared
+LOCAL_PCA_SUBSPACE_DIMS_FRACTION = 0.10  # eigenspace dimensions M compared: 1, 2, ... up to this fraction of the dimensions of the local eigenspace (3 x atoms per window), rounded to the nearest whole number ...
+LOCAL_PCA_SUBSPACE_DIMS_MAX  = 15              # ... or this many, whichever is smaller
 LOCAL_PCA_N_COMPARE_MODES    = 10              # local modes with stored overlaps / followed across windows
-LOCAL_PCA_CONSISTENCY_OFFSETS = (1, 2, 4, 7, 10)   # windows compared: window w+j (index) / j-th nearest window centre (neighborhood)
+LOCAL_PCA_CONSISTENCY_OFFSETS_FRACTION = 0.33  # windows compared: window w+j (index) / j-th nearest window centre (neighborhood), j = 1, 2, ... up to this fraction of the atoms per window, rounded to the nearest whole number ...
+LOCAL_PCA_CONSISTENCY_OFFSETS_MAX = 15         # ... or this many, whichever is smaller
+LOCAL_PCA_CONSISTENCY_SHARES = "all"           # "all": every possible share of common atoms 1/n, 2/n, ..., (n-1)/n (n = atoms per window); or a tuple of target shares; None = offsets only. For each share the smallest offset reaching it is added, so that windows that barely overlap are compared
+LOCAL_PCA_TRACK_MAX_RANK     = 10              # nearest windows searched in the neighbour count of panel (c) (independent of the offsets above)
 LOCAL_PCA_TRACK_THRESHOLD    = 0.8             # a mode is "found again" when the restricted overlap >= this
 LOCAL_PCA_MIN_SHARED_WEIGHT  = 0.5             # ... and >= this share of its norm lies on the shared atoms
 LOCAL_PCA_N_NULL             = 10              # shifted-column null runs (0 = none); ~10 s each at 6750 atoms

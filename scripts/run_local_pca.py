@@ -37,8 +37,11 @@ from analysis.soft_modes.local_pca_dips import (
 from analysis.soft_modes.pca_reliability import _flat, _effective_frames
 from config import (
     TRAJECTORY_FILE,
-    LOCAL_PCA_WINDOW_MODE, LOCAL_PCA_WINDOW_SIZE, LOCAL_PCA_STEP, LOCAL_PCA_N_GLOBAL_MODES, LOCAL_PCA_SUBSPACE_DIMS,
-    LOCAL_PCA_N_COMPARE_MODES, LOCAL_PCA_CONSISTENCY_OFFSETS, LOCAL_PCA_TRACK_THRESHOLD,
+    LOCAL_PCA_WINDOW_MODE, LOCAL_PCA_WINDOW_SIZE, LOCAL_PCA_STEP, LOCAL_PCA_N_GLOBAL_MODES,
+    LOCAL_PCA_SUBSPACE_DIMS_FRACTION, LOCAL_PCA_SUBSPACE_DIMS_MAX,
+    LOCAL_PCA_CONSISTENCY_OFFSETS_FRACTION, LOCAL_PCA_CONSISTENCY_OFFSETS_MAX,
+    LOCAL_PCA_N_COMPARE_MODES, LOCAL_PCA_CONSISTENCY_SHARES, LOCAL_PCA_TRACK_MAX_RANK,
+    LOCAL_PCA_TRACK_THRESHOLD,
     LOCAL_PCA_MIN_SHARED_WEIGHT, LOCAL_PCA_N_NULL, LOCAL_PCA_SAVE_EIGENVECTORS,
     LOCAL_PCA_DIP_PROMINENCE, LOCAL_PCA_DIP_REL_HEIGHT, LOCAL_PCA_DIP_SEARCH, LOCAL_PCA_DIP_MAX_MODES,
     LOCAL_PCA_DIP_QUANTILES, LOCAL_PCA_DIP_TOP_ATOMS,
@@ -47,6 +50,7 @@ from data_io.trajectory import load_trajectory
 from utils import get_output_dir, unwrap_positions, compute_displacements
 from visualization.plot import (
     plot_local_pca_spectra, plot_local_participation, plot_local_vs_global, plot_local_consistency,
+    plot_local_consistency_landscapes,
     plot_mode_amplitude_grid, plot_dip_eigenvectors,
 )
 
@@ -76,8 +80,11 @@ if __name__ == "__main__":
     res = local_pca_analysis(
         u, masses, window_size=LOCAL_PCA_WINDOW_SIZE, step=LOCAL_PCA_STEP,
         window_mode=LOCAL_PCA_WINDOW_MODE, mean_positions=mean_pos, box=box[0],
-        n_global_modes=LOCAL_PCA_N_GLOBAL_MODES, subspace_dims=LOCAL_PCA_SUBSPACE_DIMS,
-        n_compare_modes=LOCAL_PCA_N_COMPARE_MODES, consistency_offsets=LOCAL_PCA_CONSISTENCY_OFFSETS,
+        n_global_modes=LOCAL_PCA_N_GLOBAL_MODES, subspace_dims=None,
+        subspace_dims_fraction=LOCAL_PCA_SUBSPACE_DIMS_FRACTION, subspace_dims_max=LOCAL_PCA_SUBSPACE_DIMS_MAX,
+        n_compare_modes=LOCAL_PCA_N_COMPARE_MODES, consistency_offsets=None,
+        offsets_fraction=LOCAL_PCA_CONSISTENCY_OFFSETS_FRACTION, offsets_max=LOCAL_PCA_CONSISTENCY_OFFSETS_MAX,
+        consistency_shares=LOCAL_PCA_CONSISTENCY_SHARES, track_max_rank=LOCAL_PCA_TRACK_MAX_RANK,
         track_threshold=LOCAL_PCA_TRACK_THRESHOLD, min_shared_weight=LOCAL_PCA_MIN_SHARED_WEIGHT,
         t_eff=t_eff, n_null=LOCAL_PCA_N_NULL, dip_prominence=LOCAL_PCA_DIP_PROMINENCE,
         dip_rel_height=LOCAL_PCA_DIP_REL_HEIGHT, dip_search=LOCAL_PCA_DIP_SEARCH)
@@ -127,5 +134,6 @@ if __name__ == "__main__":
     plot_local_participation(res, save_path=os.path.join(OUTPUT_DIR, "local_pca_participation.png"))
     plot_local_vs_global(res, save_path=os.path.join(OUTPUT_DIR, "local_pca_vs_global.png"))
     plot_local_consistency(res, save_path=os.path.join(OUTPUT_DIR, "local_pca_consistency.png"))
+    plot_local_consistency_landscapes(res, save_path=os.path.join(OUTPUT_DIR, "local_pca_consistency_landscapes.html"))
     save_local_pca(res, os.path.join(OUTPUT_DIR, "local_pca.npz"),
                    eigenvectors_dtype=np.float32 if LOCAL_PCA_SAVE_EIGENVECTORS else None)

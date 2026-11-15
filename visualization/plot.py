@@ -820,9 +820,10 @@ def plot_mode_atom_distribution_by_element(eigenvectors, elements, soft_mode_mas
         fig.colorbar(im, ax=[ax1, ax2], label=f"fraction of {el} atoms", pad=0.02)
         if soft.any():
             for ax in (ax1, ax2):
-                ax.axvspan(modes[soft].min() - 0.5, modes[soft].max() + 0.5,
+                _band_span(ax, "v", modes[soft].min() - 0.5, modes[soft].max() + 0.5,
                            color="tab:red", alpha=0.12, lw=0)
         path = os.path.join(save_dir, f"participation_per_mode_{el}.png")
+        _prune_thin_bands(fig)
         fig.savefig(path, dpi=150)
         plt.close(fig)
         print(f"Saved: {path}")
@@ -1079,9 +1080,9 @@ def plot_d2min_by_soft_neighbours(n_soft_neighbours, soft_mask, values, null=Non
         if null is not None and title in null:
             for g in groups:
                 m0, s0 = null[title][g]
-                ax.fill_between([g - 0.4, g + 0.4], [m0 - s0] * 2, [m0 + s0] * 2,
-                                color="grey", alpha=0.35, zorder=1,
-                                label="expected by chance (mean ± std)" if g == 0 else None)
+                _band_fill(ax, [g - 0.4, g + 0.4], [m0 - s0] * 2, [m0 + s0] * 2, group="chance",
+                           color="grey", alpha=0.35, zorder=1,
+                           label="expected by chance (mean ± std)" if g == 0 else None)
         ax.errorbar(groups, means, yerr=sem, fmt="o", color="tab:red", capsize=3, zorder=5,
                     label="mean ± s.e.m.")
         ax.set_xticks(groups)
@@ -1089,10 +1090,11 @@ def plot_d2min_by_soft_neighbours(n_soft_neighbours, soft_mask, values, null=Non
         ax.set_xlabel("number of soft neighbours")
         ax.set_ylabel(value_label)
         ax.set_title(title)
-    handles, labs = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labs, loc="lower center", ncol=len(handles), fontsize=9)
     fig.suptitle("D²_min of non-soft atoms vs. number of soft neighbours (final frame)")
     fig.tight_layout(rect=(0, 0.07, 1, 1))
+    _prune_thin_bands(fig)                      # before the figure legend, which then names what is still drawn
+    handles, labs = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labs, loc="lower center", ncol=len(handles), fontsize=9)
     fig.savefig(save_path, dpi=150)
     plt.close(fig)
     print(f"Saved: {save_path}")
@@ -1316,8 +1318,8 @@ def plot_pca_reliability(res, eigenvalue_unit="amu·Å²", save_path=None):
     ax.legend(fontsize=8)
 
     n = np.arange(Ks)
-    ax2.fill_between(n, res["retained_null_median"], res["retained_null_high"], color="0.85",
-                     label=f"chance (median to {q}% of {res['n_null']} runs)")
+    _band_fill(ax2, n, res["retained_null_median"], res["retained_null_high"], color="0.85",
+               label=f"chance (median to {q}% of {res['n_null']} runs)")
     ax2.plot(n, ret, color="k", lw=1)
     ax2.scatter(n[n_rep:], ret[n_rep:], facecolors="none", edgecolors="k", s=18, zorder=3)
     ax2.scatter(n[:n_rep], ret[:n_rep], color="tab:red", s=24, zorder=4,
@@ -1332,6 +1334,7 @@ def plot_pca_reliability(res, eigenvalue_unit="amu·Å²", save_path=None):
     ax2.legend(fontsize=8)
 
     fig.tight_layout()
+    _prune_thin_bands(fig)
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {save_path}")
@@ -1418,10 +1421,128 @@ def _style(ax):
         ax.spines[s].set_visible(False)
 
 
+# ---- bands: a band thinner than a line is not drawn ------------------------------------------------------------------
+# RULE for every band in this module (shaded region between two curves, axhspan / axvspan): if its width, measured on
+# the finished figure, is less than the thickness of a normal curve (matplotlib's default line width,
+# rcParams["lines.linewidth"], in points), the band is not drawn and nothing that belongs only to it stays in the
+# legend. Draw bands with _band_fill / _band_span (never ax.fill_between / axhspan / axvspan directly) and call
+# _prune_thin_bands(fig) after the layout is final and before the figure is saved (_save does it).
+
+def _band_fill(ax, x, lo, hi, group=None, **kw):
+    """ax.fill_between that is registered for _prune_thin_bands. group: bands of one group share one legend entry
+    (the label is passed to the first band of the group only; it moves to the next one if that band is dropped).
+    The returned PolyCollection has the entry in ._band: ._band["drop_with"] = artists that go with the band
+    (e.g. its dashed boundary line), ._band["relabel"] = [(artist, label)] new labels if the band is dropped."""
+    x, lo, hi = np.broadcast_arrays(np.asarray(x, dtype=float), np.asarray(lo, dtype=float),
+                                    np.asarray(hi, dtype=float))
+    art = ax.fill_between(x, lo, hi, **kw)
+    art._band = dict(ax=ax, artist=art, axis="y", x=x, lo=lo, hi=hi, drop_with=[], relabel=[], group=group)
+    if not hasattr(ax.figure, "_bands"):
+        ax.figure._bands = []
+    ax.figure._bands.append(art._band)
+    return art
+
+
+def _band_span(ax, orient, a, b, **kw):
+    """ax.axhspan (orient="h") / ax.axvspan (orient="v") registered for _prune_thin_bands; see _band_fill."""
+    art = (ax.axhspan if orient == "h" else ax.axvspan)(a, b, **kw)
+    art._band = dict(ax=ax, artist=art, axis="y" if orient == "h" else "x", x=None, lo=np.array([float(a)]),
+                     hi=np.array([float(b)]), drop_with=[], relabel=[], group=None)
+    if not hasattr(ax.figure, "_bands"):
+        ax.figure._bands = []
+    ax.figure._bands.append(art._band)
+    return art
+
+
+def _band_width_pt(e):
+    """Largest width of a registered band in points on the figure as it is now (None if it cannot be measured)."""
+    ax, lo, hi = e["ax"], e["lo"], e["hi"]
+    if e["axis"] == "y":
+        x = e["x"] if e["x"] is not None else np.full_like(lo, np.mean(ax.get_xlim()))
+        w = np.abs(ax.transData.transform(np.column_stack([x, hi]))[:, 1]
+                   - ax.transData.transform(np.column_stack([x, lo]))[:, 1])
+    else:
+        y = np.full_like(lo, np.mean(ax.get_ylim()))
+        w = np.abs(ax.transData.transform(np.column_stack([hi, y]))[:, 0]
+                   - ax.transData.transform(np.column_stack([lo, y]))[:, 0])
+    w = w[np.isfinite(w)]
+    return float(w.max()) * 72.0 / ax.figure.dpi if w.size else None
+
+
+def _prune_thin_bands(fig):
+    """Remove every registered band whose largest width is below the default line width (see the RULE above), together
+    with the artists that belong to it, and rebuild the legend of each axes that lost one, so that the legend names
+    exactly what is drawn. Axis limits are kept. Returns the number of removed bands."""
+    thin = float(plt.rcParams["lines.linewidth"])
+    entries = [e for e in getattr(fig, "_bands", []) if e["artist"].axes is not None]
+    drop = []
+    for e in entries:
+        w = _band_width_pt(e)
+        if w is not None and w < thin:
+            drop.append(e)
+    if not drop:
+        return 0
+    axes = {}
+    for e in drop:
+        axes.setdefault(e["ax"], [])
+    for ax in axes:
+        axes[ax] = (ax.get_legend(), ax.get_legend_handles_labels(), (ax.get_xlim(), ax.get_ylim()))
+    for e in drop:
+        label = e["artist"].get_label()
+        e["artist"].remove()
+        for a in e["drop_with"]:
+            if a.axes is not None:
+                a.remove()
+        for a, lab in e["relabel"]:
+            a.set_label(lab)
+        if e["group"] is not None and not label.startswith("_"):          # the group's legend entry moves on
+            for o in entries:
+                if o["group"] == e["group"] and o["ax"] is e["ax"] and o["artist"].axes is not None:
+                    o["artist"].set_label(label)
+                    break
+    for ax, (leg, (h0, l0), (xl, yl)) in axes.items():
+        ax.set_xlim(xl)
+        ax.set_ylim(yl)
+        if leg is not None:
+            _rebuild_legend(ax, leg, h0, l0)
+    return len(drop)
+
+
+def _rebuild_legend(ax, leg, h0, l0):
+    """Legend of `ax` again after artists were removed: same place, size and entries, minus the removed ones.
+    h0, l0: handles and labels the axes had before (to tell a default legend from one with explicit handles)."""
+    spec = getattr(ax, "_on_top", None)
+    if spec is not None:                                      # legend above the data: its head room shrinks too
+        keep = None if spec["handles"] is None else [h for h in spec["handles"] if h.axes is not None]
+        if keep is None and not ax.get_legend_handles_labels()[0] or keep is not None and not keep:
+            leg.remove()
+            ax.set_ylim(spec["ylim"])
+            ax.set_yticks(spec["ticks"])
+            return
+        _legend_on_top(ax, spec["ncol"], spec["fontsize"], keep)
+        return
+    texts = [t.get_text() for t in leg.get_texts()]
+    if texts == list(l0):
+        h, l = ax.get_legend_handles_labels()
+    else:
+        by_label = {lab: hh for hh, lab in zip(h0, l0)}
+        h = [by_label[t] for t in texts if t in by_label and by_label[t].axes is not None]
+        l = [x.get_label() for x in h]
+    kw = dict(loc=leg._loc, ncol=leg._ncols, fontsize=leg.prop.get_size_in_points(), frameon=leg.get_frame_on())
+    if leg.get_frame().get_alpha() is not None:
+        kw["framealpha"] = leg.get_frame().get_alpha()
+    if leg.get_title().get_text():
+        kw["title"] = leg.get_title().get_text()
+    leg.remove()
+    if h:
+        ax.legend(h, l, **kw)
+
+
 def _save(fig, save_path, default_name):
     if save_path is None:
         save_path = os.path.join(OUTPUT_DIR, default_name)
     fig.tight_layout()
+    _prune_thin_bands(fig)
     fig.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved: {save_path}")
@@ -1454,12 +1575,12 @@ def plot_amplitude_acf(res, n_show=4, save_path=None):
 
     for ax, key, title in ((axs[0], "amplitude", "ACF of the amplitude $a_n(t)$"),
                            (axs[1], "squared", "ACF of the squared amplitude $a_n(t)^2$")):
-        ax.axhspan(-band, band, color="0.9", label="white-noise band")
+        _band_span(ax, "h", -band, band, color="0.9", label="white-noise band")
         if null is not None:
             q = int(round(100 * null["quantile"]))
-            ax.fill_between(lags, null[key]["acf_low"][:n_show].min(axis=0),
-                            null[key]["acf_high"][:n_show].max(axis=0), color="#f2a65a", alpha=0.28, lw=0,
-                            label=f"shifted-column null ({100 - q}-{q}%)")
+            _band_fill(ax, lags, null[key]["acf_low"][:n_show].min(axis=0),
+                       null[key]["acf_high"][:n_show].max(axis=0), color="#f2a65a", alpha=0.28, lw=0,
+                       label=f"shifted-column null ({100 - q}-{q}%)")
         ax.axhline(0, color="0.5", lw=0.8)
         for n in range(n_show):
             ax.plot(lags, res[key]["acf"][n], color=_SERIES[n], lw=1.4, marker="o", ms=2.5,
@@ -1489,10 +1610,10 @@ def plot_amplitude_acf(res, n_show=4, save_path=None):
         ax.scatter(n[~ok], y[~ok], facecolors="none", edgecolors=color, marker=mk, s=34, zorder=3)
     if null is not None:
         q = int(round(100 * null["quantile"]))
-        ax.fill_between(n, null["squared"]["t_eff_low"], null["squared"]["t_eff_high"], color="#f2a65a",
-                        alpha=0.28, lw=0, label=f"null, $a^2$ window rule ({100 - q}-{q}%)")
-        ax.fill_between(n, null["squared"]["ar1_t_eff_low"], null["squared"]["ar1_t_eff_high"], color="#c0392b",
-                        alpha=0.18, lw=0, label=f"null, $a^2$ AR(1) ({100 - q}-{q}%)")
+        _band_fill(ax, n, null["squared"]["t_eff_low"], null["squared"]["t_eff_high"], color="#f2a65a",
+                   alpha=0.28, lw=0, label=f"null, $a^2$ window rule ({100 - q}-{q}%)")
+        _band_fill(ax, n, null["squared"]["ar1_t_eff_low"], null["squared"]["ar1_t_eff_high"], color="#c0392b",
+                   alpha=0.18, lw=0, label=f"null, $a^2$ AR(1) ({100 - q}-{q}%)")
     ax.axhline(T, color="0.3", ls="--", lw=1, label=f"T = {T}")
     if "pooled_t_eff" in res:
         ax.axhline(res["pooled_t_eff"], color="0.3", ls=":", lw=1.2,
@@ -1554,8 +1675,8 @@ def plot_pca_convergence(res, save_path=None):
     ax.plot([], [], color=cols[0], label="matched by max overlap (one line per mode)")
     if res["n_null"] > 0:
         nm = res["null_matched_overlap"]
-        ax.fill_between(L, np.median(nm, axis=0), np.quantile(nm, res["quantile"], axis=0), color="0.8",
-                        label=f"chance (mean over modes, null median to {int(round(100 * res['quantile']))}%)")
+        _band_fill(ax, L, np.median(nm, axis=0), np.quantile(nm, res["quantile"], axis=0), color="0.8",
+                   label=f"chance (mean over modes, null median to {int(round(100 * res['quantile']))}%)")
     ax.set_ylim(0, 1.03)
     ax.set_xlabel("frames L")
     ax.set_ylabel(r"overlap $|v_{ref}\cdot v_L|$")
@@ -1568,12 +1689,12 @@ def plot_pca_convergence(res, save_path=None):
     ax.plot(L, res["subspace_overlap"], color=_SERIES[0], lw=1.6, marker="o", ms=4, label="vs reference")
     ax.plot(L[:-1], res["subspace_overlap_next"], color=_SERIES[1], lw=1.6, marker="s", ms=4, label="vs next longer segment")
     if res["n_null"] > 0:
-        ax.fill_between(L, np.median(res["null_subspace_overlap"], axis=0),
-                        np.quantile(res["null_subspace_overlap"], res["quantile"], axis=0), color=_SERIES[0],
-                        alpha=0.15, label=f"null vs reference (median to {q}%)")
-        ax.fill_between(L[:-1], np.median(res["null_subspace_overlap_next"], axis=0),
-                        np.quantile(res["null_subspace_overlap_next"], res["quantile"], axis=0), color=_SERIES[1],
-                        alpha=0.15, label=f"null vs next (median to {q}%)")
+        _band_fill(ax, L, np.median(res["null_subspace_overlap"], axis=0),
+                   np.quantile(res["null_subspace_overlap"], res["quantile"], axis=0), color=_SERIES[0],
+                   alpha=0.15, label=f"null vs reference (median to {q}%)")
+        _band_fill(ax, L[:-1], np.median(res["null_subspace_overlap_next"], axis=0),
+                   np.quantile(res["null_subspace_overlap_next"], res["quantile"], axis=0), color=_SERIES[1],
+                   alpha=0.15, label=f"null vs next (median to {q}%)")
     ax.axhline(res["subspace_random_baseline"], color="0.3", ls=":", lw=1, label=f"random subspaces M/P")
     ax.set_ylim(0, 1.03)
     ax.set_xlabel("frames L")
@@ -1632,7 +1753,7 @@ def _heatmap(ax, data, position, cmap="Blues", vmin=None, vmax=None, label="", t
 
 def _band(ax, x, pct, color, label, ls="-", band_label="windows, 5-95 %"):
     """Median line (legend entry `label`) and 5-95 % band (legend entry `band_label`) of a (3, len(x)) percentile array."""
-    ax.fill_between(x, pct[0], pct[2], color=color, alpha=0.18, lw=0, label=band_label)
+    _band_fill(ax, x, pct[0], pct[2], color=color, alpha=0.18, lw=0, label=band_label)
     ax.plot(x, pct[1], color=color, lw=1.5, ls=ls, label=label)
 
 
@@ -1643,16 +1764,19 @@ def _null_band(ax, x, med, high, label, q=None):
     """
     Shifted-column null, median (solid) to upper quantile (dashed) of its runs, shaded in between and drawn
     ABOVE the window band. The null is the run-to-run spread of a window-aggregated statistic and is often much
-    narrower than the spread between windows (local_pca.null_band_diagnostics): both boundaries are drawn as lines at
-    their true values, so a band thinner than a line is still visible and is not made wider; the legend gives its
-    largest width.
+    narrower than the spread between windows (local_pca.null_band_diagnostics). The band is drawn at its true
+    width, never widened; the legend gives its largest width. A band thinner than a line (see _prune_thin_bands) is
+    not drawn, nor is its dashed upper boundary, and the solid line is then the "null median" only.
     """
     x, med, high = np.asarray(x), np.asarray(med), np.asarray(high)
     w = float(np.nanmax(high - med)) if len(med) else 0.0
-    ax.fill_between(x, med, high, color="0.45", alpha=0.45, lw=0, zorder=3, label=f"{label}: band, width <= {w:.2g}")
-    ax.plot(x, med, color="0.25", lw=1.0, zorder=3.1, label="null median (solid)")
-    ax.plot(x, high, color="0.25", lw=1.0, ls=(0, (3, 2)), zorder=3.1,
-            label="null upper quantile (dashed)" if q is None else f"null {q}% (dashed)")
+    band = _band_fill(ax, x, med, high, color="0.45", alpha=0.45, lw=0, zorder=3,
+                      label=f"{label}: band, width <= {w:.2g}")
+    line, = ax.plot(x, med, color="0.25", lw=1.0, zorder=3.1, label="null median (solid)")
+    dashed, = ax.plot(x, high, color="0.25", lw=1.0, ls=(0, (3, 2)), zorder=3.1,
+                      label="null upper quantile (dashed)" if q is None else f"null {q}% (dashed)")
+    band._band["drop_with"].append(dashed)
+    band._band["relabel"].append((line, "null median"))
 
 
 def _mark_dips(ax, res, axis="x", n_shown=None, legend=False, labels=True):
@@ -1679,7 +1803,7 @@ def _mark_dips(ax, res, axis="x", n_shown=None, legend=False, labels=True):
     for i, m in enumerate(d["minimum"]):
         a, b = int(d["first"][i]), int(d["last"][i])
         if axis == "x" and b > a and (n_shown is None or a < n_shown):
-            ax.axvspan(a - 0.5, b + 0.5, color=_DIP, alpha=0.08, lw=0, zorder=0,
+            _band_span(ax, "v", a - 0.5, b + 0.5, color=_DIP, alpha=0.08, lw=0, zorder=0,
                        label=lab("span", f"dip region (within {d['rel_height']:g} x prominence)"))
         for k in range(a, b + 1):
             if n_shown is not None and k >= n_shown:
@@ -1701,24 +1825,33 @@ def _mark_dips(ax, res, axis="x", n_shown=None, legend=False, labels=True):
         ax.legend(fontsize=7, loc="upper right", framealpha=0.85)
 
 
-def _legend_on_top(ax, ncol=2, fontsize=7):
+def _legend_on_top(ax, ncol=2, fontsize=7, handles=None):
     """
     Legend in head room above the data: the vertical axis is extended (log axes: in log space) by what the legend
     needs, and the ticks above the data are dropped, so the legend, which names every element of the panel, covers
-    no curve.
+    no curve. handles: explicit list of artists (with labels) to control the order; default all labelled artists.
     """
-    h, l = ax.get_legend_handles_labels()
+    st = getattr(ax, "_on_top", None)
+    if st is not None:                                # called again (_prune_thin_bands): start from the data range
+        ax.set_ylim(st["ylim"])
+        ax.set_yticks(st["ticks"])
+    if handles is None:
+        h, l = ax.get_legend_handles_labels()
+    else:
+        h, l = list(handles), [x.get_label() for x in handles]
     rows = -(-len(l) // ncol)
     f = min(0.06 + 0.052 * rows, 0.6)                 # fraction of the axis height reserved for the legend
     lo, hi = ax.get_ylim()
     ticks = [t for t in ax.get_yticks() if lo - 1e-12 <= t <= hi + 1e-12]
+    if st is None:
+        ax._on_top = dict(ylim=(lo, hi), ticks=ticks, ncol=ncol, fontsize=fontsize, handles=handles)
     if ax.get_yscale() == "log":
         new = 10 ** (np.log10(lo) + (np.log10(hi) - np.log10(lo)) / (1 - f))
     else:
         new = lo + (hi - lo) / (1 - f)
     ax.set_ylim(lo, new)
     ax.set_yticks(ticks)
-    ax.legend(loc="upper center", ncol=ncol, fontsize=fontsize, framealpha=0.9)
+    ax.legend(h, l, loc="upper center", ncol=ncol, fontsize=fontsize, framealpha=0.9)
 
 
 def plot_local_pca_spectra(res, eigenvalue_unit="amu·Å²", save_path=None):
@@ -1851,9 +1984,12 @@ def plot_local_participation(res, save_path=None):
         axr = fig.add_subplot(gs[1, 1], sharex=ax)
         plt.setp(ax.get_xticklabels(), visible=False)
         axr.plot(n, bands["n_participating"][1] - nm, color=_SERIES[0], lw=1.5, label="windows (median) - null median")
-        axr.fill_between(n, 0, nh - nm, color="0.45", alpha=0.45, lw=0, zorder=3, label="null band between them")
-        axr.plot(n, nh - nm, color="0.25", lw=1.0, ls=(0, (3, 2)), zorder=3.1, label=f"null {q}% - null median (dashed)")
-        axr.axhline(0, color="0.25", lw=1.0, zorder=3.1, label="null median = 0 (solid)")
+        bnd = _band_fill(axr, n, 0, nh - nm, color="0.45", alpha=0.45, lw=0, zorder=3, label="null band between them")
+        dsh, = axr.plot(n, nh - nm, color="0.25", lw=1.0, ls=(0, (3, 2)), zorder=3.1,
+                        label=f"null {q}% - null median (dashed)")
+        zero = axr.axhline(0, color="0.25", lw=1.0, zorder=3.1, label="null median = 0 (solid)")
+        bnd._band["drop_with"].append(dsh)
+        bnd._band["relabel"].append((zero, "null median = 0"))
         _mark_dips(axr, res, n_shown=K, labels=False)        # same lines as in the panel above (shared axis)
         axr.set_xlabel("local mode index n  (0 = softest)")
         axr.set_ylabel(r"$\Delta n_{part}$", fontsize=9)
@@ -1957,7 +2093,7 @@ def plot_local_vs_global(res, save_path=None):
     ax = axs[1, 1]
     for key, color, ls, lab in (("subspace_overlap", _SERIES[0], "-", r"overlap $S_M$"),
                                 ("capture_ratio", _SERIES[1], "--", "variance capture ratio")):
-        ax.fill_between(dims, b[key][0], b[key][2], color=color, alpha=0.15, lw=0, label=lab + ", 5-95 % of windows")
+        _band_fill(ax, dims, b[key][0], b[key][2], color=color, alpha=0.15, lw=0, label=lab + ", 5-95 % of windows")
         ax.plot(dims, b[key][1], color=color, ls=ls, lw=1.6, marker="o", ms=4, label=lab + ", median")
         if has_null:
             ax.plot(dims, b["null_high"][key], color=color, ls=ls, lw=1, alpha=0.5, marker="_", ms=8,
@@ -1975,69 +2111,91 @@ def plot_local_vs_global(res, save_path=None):
     _save(fig, save_path, "local_pca_vs_global.png")
 
 
-def plot_local_consistency(res, save_path=None):
+def plot_local_consistency(res, save_path=None, min_windows=1):
     """
     Are local modes found again in overlapping windows? `res` = local_pca.local_pca_analysis(...).
     Window w is compared with window w + j (index windows) or with its j-th nearest window centre (neighbourhood
-    windows) on the atoms they share (x axis: share of the atoms that are common). Overlapping windows use the
-    same frames, so this tests robustness against the position of the window boundary, not against sampling.
+    windows) on the atoms they share. x axis of (a) and (b): share c / n of the atoms that are common, from 0 to 1 (rising).
+    Every window pair of every compared offset is put in the bin of its exact number c of common atoms (c = 1..n-1), so
+    the points reach as close to 0 (c = 1) and 1 (c = n-1) as there are pairs in the data; at c = n the windows are
+    identical and at 0 nothing is compared, so there is no value there. Overlapping windows use the same frames, so this
+    tests robustness against the position of the window boundary, not against sampling.
 
-    (a) matched restricted overlap (maximum over the modes of the other window), mean over windows where the mode
-        has >= min_shared_weight of its norm on the shared atoms; one line per local mode (light -> dark = 0, ...);
+    (a) matched restricted overlap (maximum over the modes of the other window), mean over ALL window pairs of that
+        number of common atoms, each pair weighted by the share of the norm of the mode that lies on the shared atoms
+        (a mode that sits on the shared atoms counts fully, a mode that hardly touches them hardly counts; no
+        threshold, so the curves reach as far as there are pairs); one line per local mode (light -> dark = 0, ...);
         grey = shifted-column null, mean over the same modes (median to upper quantile).
-    (b) leading-M eigenspace overlap (restricted, re-orthonormalised principal angles), one colour per M; thin
-        grey ticks = null upper quantile of the same M.
+    (b) leading-M eigenspace overlap (restricted, re-orthonormalised principal angles), one colour per M, with the
+        shifted-column null upper quantile of the same M as a tick of the same colour.
     (c) index windows: chain length = number of consecutive windows (shift 1) over which mode n is found again with
-        overlap >= track_threshold. Neighbourhood windows have no linear order: 1 + the number of the nearest windows
-        in which it is found again (not a chain). Median and 5-95 % over start windows (blue band), their mean (blue
-        dashed) and the null's mean over windows (grey dashed): compare mean with mean, the counts are skewed.
+        overlap >= track_threshold (log axis). Neighbourhood windows have no linear order: 1 + the number of the
+        nearest windows in which it is found again (not a chain; linear axis, whole numbers). Median and 5-95 % over
+        start windows (blue band), their mean (blue dashed) and the null's mean over windows (grey dashed): compare
+        mean with mean, the counts are skewed.
+    The same quantities for ALL local modes / ALL eigenspace sizes M as rotatable 3D landscapes:
+    plot_local_consistency_landscapes().
+
+    min_windows: a mean in (a) is drawn only if at least this many window pairs contribute to it (default 1: wherever
+    a pair exists); the same rule is applied to the null.
     """
+    import warnings
     cons, trk, st = res["consistency"], res["tracking"], res["statistics"]
     n_at = res["local"]["n_atoms_window"]
-    shared = cons["shared_fraction"]
+    shared = cons["common_atoms"] / cons["window_size"]            # x: exact share c / n of the pooled window pairs
     has_null = res["null"] is not None
     q = int(round(100 * res["null"]["quantile"])) if has_null else None
     S = res["summary"]
-    nm = S["consistency_matched"].shape[1]
+    nm = cons["n_modes"]
+    matched_all = np.where(S["consistency_matched_count_by_common"] >= min_windows,
+                           S["consistency_matched_by_common"], np.nan)           # (n-1, K)
+    matched = matched_all[:, :nm]
     dips = res.get("dips")
     dip_min = [] if dips is None else [int(m) for m in dips["minimum"] if m < nm]
     show = sorted(({0, 1, 2, 4, min(9, nm - 1)} & set(range(nm))) - set(dip_min))
     cols = dict(zip(show, _ranked_colors(len(show))[::-1]))
-    fig, axs = plt.subplots(1, 3, figsize=(16, 4.8))
+    fig, axs = plt.subplots(1, 3, figsize=(19, 6.6))
 
     ax = axs[0]
     for n in show:
-        ax.plot(shared, S["consistency_matched"][:, n], color=cols[n], lw=1.4, marker="o", ms=3, label=f"mode {n}")
+        ax.plot(shared, matched[:, n], color=cols[n], lw=1.4, marker="o", ms=3, label=f"mode {n}")
     for k, n in enumerate(dip_min):                       # detected dips: purple, dashed, labelled with the mode
-        ax.plot(shared, S["consistency_matched"][:, n], color=_DIP, lw=1.3, ls=("-.", ":", "--")[k % 3], marker="s", ms=3,
+        ax.plot(shared, matched[:, n], color=_DIP, lw=1.3, ls=("-.", ":", "--")[k % 3], marker="s", ms=3,
                 label=f"mode {n} (dip)")
     if has_null:
-        nl = np.nanmean(res["null"]["consistency_matched"], axis=2)
+        nv = np.where(res["null"]["consistency_matched_count_by_common"][:, :, :nm] >= min_windows,
+                      res["null"]["consistency_matched_by_common"][:, :, :nm], np.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            nl = np.nanmean(nv, axis=2)
         _null_band(ax, shared, np.median(nl, axis=0), np.quantile(nl, res["null"]["quantile"], axis=0),
                    f"shifted-column null, mean over {nm} modes", q=q)
     ax.set_ylim(0, 1.03)
-    ax.invert_xaxis()
+    ax.set_xlim(0.0, 1.0)
     ax.set_xlabel("share of atoms common to both windows")
     ax.set_ylabel("matched restricted overlap")
-    ax.set_title("(a) single modes, matched by maximum overlap", fontsize=10)
+    ax.set_title("(a) single modes, matched by maximum overlap\n(window pairs weighted by the mode's norm on the shared atoms)",
+                 fontsize=10)
     _legend_on_top(ax, ncol=2)
     _style(ax)
 
     ax = axs[1]
     dims = cons["subspace_dims"]
+    lines, ticks = [], []
+    mcols = plt.cm.viridis(np.linspace(0.0, 0.88, max(len(dims), 1)))
     for i, M in enumerate(dims):
-        ax.plot(shared, S["consistency_subspace"][:, i], color=_SERIES[i % len(_SERIES)], lw=1.4, marker="o", ms=3,
-                label=f"M = {M}")
+        lines += ax.plot(shared, S["consistency_subspace_by_common"][:, M - 1], color=mcols[i], lw=1.4, marker="o",
+                         ms=3, label=f"M = {M}")
         if has_null:
-            ax.plot(shared, np.quantile(res["null"]["consistency_subspace"][:, :, i], res["null"]["quantile"], axis=0),
-                    color="0.45", ls="none", marker="_", ms=9)
-    ax.plot([], [], color="0.45", ls="none", marker="_", ms=9, label="null upper quantile")
+            ticks += ax.plot(shared, np.quantile(res["null"]["consistency_subspace_by_common"][:, :, M - 1],
+                                                  res["null"]["quantile"], axis=0), color=mcols[i], ls="none",
+                             marker="_", ms=11, mew=2.2, label=f"M = {M}: null {q} % (tick)")
     ax.set_ylim(0, 1.03)
-    ax.invert_xaxis()
+    ax.set_xlim(0.0, 1.0)
     ax.set_xlabel("share of atoms common to both windows")
     ax.set_ylabel("eigenspace overlap")
     ax.set_title("(b) leading eigenspaces", fontsize=10)
-    _legend_on_top(ax, ncol=2)
+    _legend_on_top(ax, ncol=3, handles=lines + ticks)           # the lines first, then their null ticks
     _style(ax)
 
     ax = axs[2]
@@ -2049,11 +2207,16 @@ def plot_local_consistency(res, save_path=None):
     if has_null:
         ax.plot(n, np.median(res["null"]["chain_length"], axis=0), color="0.45", lw=1.4, ls="--", marker="s", ms=3,
                 label="null, mean over windows (median of runs)")
-    ax.set_yscale("log")
+    counts = trk.get("kind") == "neighbours"
+    if counts:                                    # counts 1..1+max_rank: a linear axis with whole numbers
+        ax.set_ylim(0.5, trk["max_rank"] + 1.5)
+        ax.yaxis.set_major_locator(plt.MultipleLocator(1) if trk["max_rank"] <= 14 else plt.MaxNLocator(integer=True))
+    else:
+        ax.set_yscale("log")
     ax.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     _mark_dips(ax, res, n_shown=len(n))
     ax.set_xlabel("local mode index n  (0 = softest)")
-    if trk.get("kind") == "neighbours":
+    if counts:
         ax.set_ylabel(f"1 + nearest windows (of {trk['max_rank']}) in which the mode is found")
         ax.set_title(f"(c) found again in neighbouring windows (overlap >= {trk['threshold']:g})", fontsize=10)
     else:
@@ -2064,6 +2227,95 @@ def plot_local_consistency(res, save_path=None):
     fig.suptitle(f"Consistency across overlapping windows of {n_at} atoms ({st['n_windows']} windows, same "
                  f"{st['n_frames']} frames: not independent)", fontsize=10, y=1.0)
     _save(fig, save_path, "local_pca_consistency.png")
+
+
+def _consistency_landscape_figure(res, min_windows=1):
+    """plotly figure behind plot_local_consistency_landscapes (None if plotly is not installed)."""
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+    except ImportError:
+        return None
+    import warnings
+    cons, S = res["consistency"], res["summary"]
+    shared = cons["common_atoms"] / cons["window_size"]            # ascending: 1/n ... (n-1)/n
+    has_null = res["null"] is not None
+    q = int(round(100 * res["null"]["quantile"])) if has_null else None
+    dips = res.get("dips")
+    dip_min = [] if dips is None else [int(m) for m in dips["minimum"] if m < cons["n_modes"]]
+    matched = np.where(S["consistency_matched_count_by_common"] >= min_windows,
+                       S["consistency_matched_by_common"], np.nan)                    # (n-1, K)
+    sub = S["consistency_subspace_by_common"]                                          # (n-1, K)
+    null_m = null_s = None
+    if has_null:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            nm_all = np.where(res["null"]["consistency_matched_count_by_common"] >= min_windows,
+                              res["null"]["consistency_matched_by_common"], np.nan)
+            null_m = np.nanquantile(nm_all, res["null"]["quantile"], axis=0)
+            null_s = np.nanquantile(res["null"]["consistency_subspace_by_common"], res["null"]["quantile"], axis=0)
+    fig = make_subplots(rows=1, cols=2, specs=[[{"type": "scene"}, {"type": "scene"}]],
+                        subplot_titles=("(a) all local modes: matched overlap", "(b) all eigenspace sizes M: eigenspace overlap"))
+    first = {"obs": True, "null": True, "dip": True}               # one legend entry per kind, for both landscapes
+
+    def add(col, index, Z, Znull, xtitle, mark=()):
+        nonlocal first
+        fig.add_trace(go.Surface(
+            x=index, y=shared, z=Z, cmin=0, cmax=1, colorscale="Viridis", showscale=first["obs"],
+            colorbar=dict(title="overlap<br>(colour = height)", len=0.55, x=0.5, y=0.5, thickness=14),
+            name="observed (window mean)", legendgroup="obs", showlegend=first["obs"],
+            hovertemplate=xtitle + " = %{x}<br>share = %{y:.3f}<br>overlap = %{z:.3f}<extra>observed</extra>"),
+            row=1, col=col)
+        first["obs"] = False
+        if Znull is not None:
+            fig.add_trace(go.Surface(
+                x=index, y=shared, z=Znull, colorscale=[[0, "grey"], [1, "grey"]], showscale=False, opacity=0.35,
+                name=f"shifted-column null, {q} % quantile", legendgroup="null", showlegend=first["null"],
+                hovertemplate=xtitle + " = %{x}<br>share = %{y:.3f}<br>null = %{z:.3f}<extra>null</extra>"),
+                row=1, col=col)
+            first["null"] = False
+        for m in mark:
+            if m in list(index):
+                r = list(index).index(m)
+                fig.add_trace(go.Scatter3d(
+                    x=[m] * len(shared), y=shared, z=Z[:, r], mode="lines", line=dict(color=_DIP, width=6),
+                    name="detected dip modes", legendgroup="dip", showlegend=first["dip"], connectgaps=False,
+                    hovertemplate="mode %{x}<br>share = %{y:.3f}<br>overlap = %{z:.3f}<extra>dip</extra>"),
+                    row=1, col=col)
+                first["dip"] = False
+
+    add(1, list(range(matched.shape[1])), matched, null_m, "local mode n", mark=dip_min)
+    add(2, list(range(1, sub.shape[1] + 1)), sub, null_s, "M")
+    scene = dict(zaxis=dict(range=[0, 1], title="overlap"), yaxis=dict(range=[0, 1], title="share of atoms common"),
+                 aspectmode="manual", aspectratio=dict(x=1.2, y=1, z=0.6), dragmode="orbit",
+                 camera=dict(eye=dict(x=1.6, y=-1.7, z=0.9)))
+    fig.update_layout(
+        scene=dict(scene, xaxis=dict(title="local mode index n (0 = softest)")),
+        scene2=dict(scene, xaxis=dict(title="M (number of leading modes)")),
+        title=f"Consistency landscapes, windows of {cons['window_size']} atoms (drag to rotate, scroll to zoom, hover to read)",
+        legend=dict(orientation="h", y=-0.02), margin=dict(l=0, r=0, t=70, b=0))
+    return fig
+
+
+def plot_local_consistency_landscapes(res, save_path=None, min_windows=1):
+    """
+    Interactive 3D landscapes of the consistency curves of ALL local modes (a) and ALL eigenspace sizes M (b): one HTML
+    page that opens in any browser (plotly.js is embedded, no network needed). Click, hold and drag to rotate freely
+    (like Mathematica), scroll to zoom, hover to read the values; click an entry of the legend to hide / show it.
+    x = mode index n (a) or M (b), y = share of common atoms (rising from 0 to 1), height and colour = overlap
+    (same numbers as plot_local_consistency: window pairs pooled by their exact number of common atoms), grey surface =
+    shifted-column null upper quantile, purple lines = detected dip modes (a). Needs plotly (pip install plotly);
+    without it a message is printed and nothing is written. Returns the path (None if not written).
+    """
+    fig = _consistency_landscape_figure(res, min_windows)
+    if fig is None:
+        print("plotly is not installed (pip install plotly): the interactive landscapes were not written")
+        return None
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "local_pca_consistency_landscapes.html")
+    fig.write_html(save_path, include_plotlyjs=True, config={"displaylogo": False})
+    print(f"Saved: {save_path}")
+    return save_path
 
 
 # =============================================================

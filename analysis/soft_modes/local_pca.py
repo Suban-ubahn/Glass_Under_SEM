@@ -642,6 +642,81 @@ def _partner_table(n_win, offsets, partners):
     return offs, partners[:, offs - 1].T.copy()
 
 
+def share_profile(windows, partners=None, max_rank=None, n_sample=200, seed=0):
+    """
+    Mean share of a window's atoms that its partner at offset / rank j has in common, for j = 1..max_rank (pairs
+    that share nothing count as 0), estimated on up to n_sample windows. Partner = window w + j (index windows) or
+    the j-th nearest window centre (`partners` = window_partners()). Returns (offsets, profile), both (n_off,).
+    It decreases from the share of the nearest windows towards 0, the offset at which windows stop overlapping.
+    """
+    windows = np.asarray(windows, dtype=int)
+    n_win, n = windows.shape
+    R = (n if partners is None else np.asarray(partners).shape[1]) if max_rank is None else int(max_rank)
+    R = min(R, n_win - 1) if partners is None else min(R, np.asarray(partners).shape[1])
+    offs, P = _partner_table(n_win, range(1, R + 1), partners)
+    rng = np.random.default_rng(seed)
+    samp = np.arange(n_win) if n_win <= n_sample else np.sort(rng.choice(n_win, n_sample, replace=False))
+    prof = np.full(len(offs), np.nan)
+    for o in range(len(offs)):
+        ws = samp[P[o, samp] >= 0]
+        if ws.size:
+            A, B = windows[ws], windows[P[o, ws]]
+            prof[o] = (A[:, :, None] == B[:, None, :]).any(axis=2).sum(axis=1).mean() / n
+    return offs, prof
+
+
+def offsets_for_shares(offsets, profile, shares, base_offsets=()):
+    """
+    Offsets whose shared fraction covers the range down to 0: base_offsets plus, for every target share s, the smallest
+    offset whose mean share (share_profile) is <= s and > 0. Targets below the smallest share reached are skipped.
+    Returns a sorted tuple of unique ints.
+    """
+    keep = {int(j) for j in base_offsets}
+    for sh in shares:
+        ok = np.where((profile <= sh) & (profile > 0))[0]            # windows that share nothing compare nothing
+        if ok.size:
+            keep.add(int(offsets[ok[0]]))
+    return tuple(sorted(keep))
+
+
+def _round_half_up(x):
+    return int(np.floor(x + 0.5))
+
+
+def auto_subspace_dims(n_coords, fraction=0.10, max_dims=15):
+    """Eigenspace dimensions M = 1, 2, ... up to `fraction` of the dimensions n_coords of the local eigenspace (rounded
+    to the nearest whole number) or `max_dims`, whichever is smaller (at least M = 1)."""
+    return tuple(range(1, max(1, min(_round_half_up(fraction * n_coords), int(max_dims))) + 1))
+
+
+def auto_offsets(window_size, fraction=0.33, max_offsets=15):
+    """Window offsets / neighbour ranks j = 1, 2, ... up to `fraction` of the number of atoms of a window (rounded to
+    the nearest whole number) or `max_offsets`, whichever is smaller (at least j = 1)."""
+    return tuple(range(1, max(1, min(_round_half_up(fraction * window_size), int(max_offsets))) + 1))
+
+
+def all_shares(window_size):
+    """Every possible share of common atoms of two windows of n atoms: 1/n, 2/n, ..., (n-1)/n."""
+    return tuple(c / window_size for c in range(1, int(window_size)))
+
+
+def leading_subspace_overlaps(A1, A2):
+    """
+    Overlap of the leading-M eigenspaces of two matrices with the SAME rows, for every M = 1..K at once
+    (columns = modes, soft first; A1, A2 are (rows, K) eigenvector blocks restricted to the shared coordinates).
+    S_M = ||Q1_M^T Q2_M||_F^2 / min(m1, m2), Q_M an orthonormal basis of the span of the leading M columns, m its
+    dimension (min(M, rows) for generic columns): the same quantity as with a fresh SVD per M, but one QR per
+    matrix gives the bases of all leading blocks (Gram-Schmidt order) and cumulative sums give every M. Returns (K,).
+    """
+    K = A1.shape[1]
+    Q1, _ = np.linalg.qr(A1)
+    Q2, _ = np.linalg.qr(A2)
+    q = Q1.shape[1]
+    G2 = (Q1.T @ Q2) ** 2
+    d = np.diag(np.cumsum(np.cumsum(G2, axis=0), axis=1)) / np.arange(1, q + 1)       # M = 1..q (square blocks)
+    return np.minimum(d[np.minimum(np.arange(1, K + 1), q) - 1], 1.0)
+
+
 def overlap_consistency(local, offsets=(1, 2, 4, 7, 10), n_modes=10, subspace_dims=(1, 3, 5, 10),
                         partners=None):
     """
@@ -653,13 +728,19 @@ def overlap_consistency(local, offsets=(1, 2, 4, 7, 10), n_modes=10, subspace_di
     Returns dict (n_off offsets, n_win windows; entry [o, w] belongs to the pair (w, partner of w at
     offsets[o]), NaN where that window does not exist or the windows share no atoms):
       offsets, shared_fraction (n_off,)          mean share of a window's atoms that is common
-      matched_overlap (n_off, n_win, n_modes)    max over the modes of window w+j of the restricted overlap
+      matched_overlap (n_off, n_win, K)          max over the modes of window w+j of the restricted overlap,
+                                                  for ALL K modes of window w (n_modes of them are followed
+                                                  in the tables, the rest feeds the 3D plots)
       matched_index (n_off, n_win, n_modes)      the mode of window w+j that matches (an index shift
                                                   means the mode changed rank)
       index_overlap (n_off, n_win, n_modes)      overlap of mode n with mode n of the other window
-      weight (n_off, n_win, n_modes)             share of the norm of mode n (window w) on the shared atoms
+      weight (n_off, n_win, K)                   share of the norm of mode n (window w) on the shared atoms
       subspace_overlap (n_off, n_win, Md)        leading-M eigenspaces, restricted and re-orthonormalised
-      subspace_dims (Md,)
+      subspace_overlap_all (n_off, n_win, K)     the same for every M = 1..K (leading_subspace_overlaps)
+      subspace_dims (Md,), n_modes
+      n_common (n_off, n_win)                    number of atoms the pair of windows shares (0: no pair / nothing shared)
+      common_atoms (n-1,), window_size n         1..n-1: the possible numbers of shared atoms (n = identical windows,
+                                                  nothing to compare); summary() pools the pairs by this number
     """
     V, windows, D = local["eigenvectors_mw"], local["windows"], local["n_dim"]
     n_win, K, _ = V.shape
@@ -667,12 +748,13 @@ def overlap_consistency(local, offsets=(1, 2, 4, 7, 10), n_modes=10, subspace_di
     dims = np.array([m for m in subspace_dims if 1 <= m <= K], dtype=int)
     offsets, P = _partner_table(n_win, offsets, partners)
     shape = (len(offsets), n_win)
-    matched = np.full(shape + (nm,), np.nan)
+    matched = np.full(shape + (K,), np.nan)
     midx = np.full(shape + (nm,), -1, dtype=int)
     idx_ov = np.full(shape + (nm,), np.nan)
-    weight = np.full(shape + (nm,), np.nan)
-    sub = np.full(shape + (len(dims),), np.nan)
+    weight = np.full(shape + (K,), np.nan)
+    sub_all = np.full(shape + (K,), np.nan)
     shared = np.zeros(len(offsets))
+    ncom = np.zeros(shape, dtype=int)
     for o, j in enumerate(offsets):
         fr = []
         for w in range(n_win):
@@ -684,19 +766,19 @@ def overlap_consistency(local, offsets=(1, 2, 4, 7, 10), n_modes=10, subspace_di
                 continue
             r1, r2, n_common = sr
             fr.append(n_common / windows.shape[1])
+            ncom[o, w] = n_common
             O, wt = _restricted_overlaps(V[w], V[p], r1, r2)
-            matched[o, w] = O[:nm].max(axis=1)
+            matched[o, w] = O.max(axis=1)
             midx[o, w] = O[:nm].argmax(axis=1)
             idx_ov[o, w] = np.diag(O)[:nm]
-            weight[o, w] = wt[:nm]
-            for i, M in enumerate(dims):
-                Q1, Q2 = _orth(V[w][r1][:, :M]), _orth(V[p][r2][:, :M])
-                if Q1.shape[1] and Q2.shape[1]:
-                    sub[o, w, i] = np.linalg.norm(Q1.T @ Q2) ** 2 / min(Q1.shape[1], Q2.shape[1])
+            weight[o, w] = wt
+            sub_all[o, w] = leading_subspace_overlaps(V[w][r1], V[p][r2])
         shared[o] = np.mean(fr) if fr else np.nan
     return {"offsets": offsets, "shared_fraction": shared, "matched_overlap": matched,
             "matched_index": midx, "index_overlap": idx_ov, "weight": weight,
-            "subspace_overlap": sub, "subspace_dims": dims}
+            "subspace_overlap": sub_all[:, :, dims - 1], "subspace_overlap_all": sub_all,
+            "subspace_dims": dims, "n_modes": nm, "n_common": ncom,
+            "common_atoms": np.arange(1, windows.shape[1]), "window_size": windows.shape[1]}
 
 
 def track_modes(local, n_modes=10, threshold=0.8, min_weight=0.5, partners=None, max_rank=None):
@@ -759,7 +841,27 @@ def _nanmean(a, axis=0):
 def summarize(local, comp, cons, trk, min_weight=0.5):
     """Window-averaged curves used to compare the data with the shifted-column null."""
     nc = comp["overlap_matrix"].shape[1]
-    w_ok = np.where(cons["weight"] >= min_weight, cons["matched_overlap"], np.nan)    # (off, win, nm)
+    w_ok = np.where(cons["weight"] >= min_weight, cons["matched_overlap"], np.nan)    # (off, win, K)
+    matched_all = _nanmean(w_ok, axis=1)                                              # (off, K)
+    # the same pooled by the exact number of shared atoms (all offsets, all windows): x = c / n of the plots
+    # (no weight threshold here: every window pair counts, weighted by the share of the mode's norm on the shared
+    # atoms, so a curve exists wherever pairs with that number of common atoms exist)
+    ncom, cs = cons["n_common"], cons["common_atoms"]
+    K = w_ok.shape[2]
+    by_c = {k: np.full((len(cs), K), np.nan) for k in ("matched", "matched_count", "subspace")}
+    pairs = np.zeros(len(cs), dtype=int)
+    for i, c in enumerate(cs):
+        m = ncom == c
+        pairs[i] = m.sum()
+        if pairs[i]:
+            ov, wt = cons["matched_overlap"][m], cons["weight"][m]
+            use = np.isfinite(ov) & np.isfinite(wt) & (wt > 0)
+            den = np.where(use, wt, 0.0).sum(axis=0)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                by_c["matched"][i] = np.where(use, ov * wt, 0.0).sum(axis=0) / den
+            by_c["matched"][i][den <= 0] = np.nan
+            by_c["matched_count"][i] = use.sum(axis=0)
+            by_c["subspace"][i] = _nanmean(cons["subspace_overlap_all"][m], axis=0)
     return {
         "spectrum_fraction": (local["eigenvalues"] / np.maximum(local["total_variance"], 1e-300)[:, None]).mean(axis=0),
         "participation": local["participation"].mean(axis=0),
@@ -767,8 +869,15 @@ def summarize(local, comp, cons, trk, min_weight=0.5):
         "explained_fraction": _nanmean(comp["explained_fraction"]),
         "subspace_overlap": _nanmean(comp["subspace_overlap"]),
         "capture_ratio": _nanmean(comp["capture_ratio"]),
-        "consistency_matched": _nanmean(w_ok, axis=1),
+        "consistency_matched": matched_all[:, :cons["n_modes"]],
+        "consistency_matched_all": matched_all,
+        "consistency_matched_count": np.isfinite(w_ok).sum(axis=1),         # (off, K) windows behind each mean
+        "consistency_matched_by_common": by_c["matched"],                    # (n-1, K) pairs sharing exactly c atoms, weighted
+        "consistency_matched_count_by_common": by_c["matched_count"],       # (n-1, K) pairs behind each mean
+        "consistency_subspace_by_common": by_c["subspace"],                 # (n-1, K) leading-M eigenspace overlap
+        "consistency_pairs_by_common": pairs,                               # (n-1,) window pairs sharing exactly c atoms
         "consistency_subspace": _nanmean(cons["subspace_overlap"], axis=1),
+        "consistency_subspace_all": _nanmean(cons["subspace_overlap_all"], axis=1),
         "chain_length": trk["chain_length"].mean(axis=0),
     }
 
@@ -830,13 +939,15 @@ def local_pca_band_statistics(res, q=(5, 50, 95)):
     null = res.get("null")
     if null is not None:
         keys = [k for k in res["summary"]]
-        out["null_median"] = {k: np.nanmedian(null[k], axis=0) for k in keys}
-        out["null_high"] = {k: np.nanquantile(null[k], null["quantile"], axis=0) for k in keys}
-        # curves drawn as window medians: the null is the median over windows as well (summarize_median); the
-        # mean-over-windows entries above keep their keys, except where a median counterpart of the same key exists
-        for k, v in (null.get("window_median") or {}).items():
-            out["null_median"][k] = np.nanmedian(v, axis=0)
-            out["null_high"][k] = np.nanquantile(v, null["quantile"], axis=0)
+        with warnings.catch_warnings():            # a share of common atoms without window pairs is NaN in every run
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            out["null_median"] = {k: np.nanmedian(null[k], axis=0) for k in keys}
+            out["null_high"] = {k: np.nanquantile(null[k], null["quantile"], axis=0) for k in keys}
+            # curves drawn as window medians: the null is the median over windows as well (summarize_median); the
+            # mean-over-windows entries above keep their keys, except where a median counterpart of the same key exists
+            for k, v in (null.get("window_median") or {}).items():
+                out["null_median"][k] = np.nanmedian(v, axis=0)
+                out["null_high"][k] = np.nanquantile(v, null["quantile"], axis=0)
     return out
 
 
@@ -891,6 +1002,8 @@ def save_local_pca(res, path, eigenvectors_dtype=np.float32):
             loc["eigenvectors_mw"] = loc["eigenvectors_mw"].astype(eigenvectors_dtype)
     out["local"] = loc
     out["comparison"] = {k: v for k, v in res["comparison"].items() if k != "subspace_cos"}
+    big = ("matched_overlap", "weight", "subspace_overlap", "subspace_overlap_all", "index_overlap")
+    out["consistency"] = {k: (v.astype(np.float32) if k in big else v) for k, v in res["consistency"].items()}   # per-window tables
     save_results(out, path)
 
 
@@ -1000,7 +1113,7 @@ def _analyze(u, masses, windows, cfg, partners=None, position=None, local=None):
     cons = overlap_consistency(local, cfg["consistency_offsets"], cfg["n_consistency_modes"],
                                cfg["subspace_dims"], partners=partners)
     trk = track_modes(local, cfg["n_consistency_modes"], cfg["track_threshold"], cfg["min_shared_weight"],
-                      partners=partners, max_rank=max(cfg["consistency_offsets"]))
+                      partners=partners, max_rank=cfg["track_max_rank"])
     return local, glob, comp, cons, trk
 
 
@@ -1008,9 +1121,11 @@ def local_pca_analysis(u, masses=None, window_size=15, step=1, windows=None,
                        window_mode="index", mean_positions=None, box=None, partners=None,
                        n_global_modes=20, subspace_dims=(1, 3, 5, 10), n_compare_modes=10,
                        consistency_offsets=(1, 2, 4, 7, 10), n_consistency_modes=None,
-                       track_threshold=0.8, min_shared_weight=0.5, t_eff=None,
+                       consistency_shares=None, track_max_rank=None, track_threshold=0.8, min_shared_weight=0.5, t_eff=None,
                        n_null=0, null_quantile=0.95, seed=0, keep_eigenvectors=True,
-                       dip_prominence=None, dip_rel_height=0.5, dip_search=None):
+                       dip_prominence=None, dip_rel_height=0.5, dip_search=None,
+                       subspace_dims_fraction=0.10, subspace_dims_max=15,
+                       offsets_fraction=0.33, offsets_max=15):
     """
     Moving-window local PCA next to the full-system PCA (see the file header for every definition).
 
@@ -1025,9 +1140,21 @@ def local_pca_analysis(u, masses=None, window_size=15, step=1, windows=None,
         the (n_win, R) table of "overlapping neighbour" windows (window_partners(); default: window w + j).
     n_global_modes : leading global modes compared with (default 20; more modes make a larger
         "dictionary" and larger chance overlaps -- see the null).
-    subspace_dims : dimensions M of the eigenspaces compared. n_compare_modes: local modes with
+    subspace_dims : dimensions M of the eigenspaces compared. None = automatic: 1, 2, ... up to subspace_dims_fraction
+        (0.10) of the dimensions of the local eigenspace (3 x atoms per window), rounded to the nearest whole number,
+        or subspace_dims_max (15), whichever is smaller (auto_subspace_dims). n_compare_modes: local modes with
         stored overlap matrix / explained fraction. consistency_offsets : window shifts j (index windows)
-        or neighbour ranks j = j-th nearest window centre (neighbourhood windows).
+        or neighbour ranks j = j-th nearest window centre (neighbourhood windows). None = automatic: 1, 2, ... up to
+        offsets_fraction (0.33) of the atoms per window, rounded, or offsets_max (15), whichever is smaller
+        (auto_offsets).
+    consistency_shares : "all" = every possible share 1/n, 2/n, ..., (n-1)/n of the n atoms of a window (all_shares).
+        Or target shares of common atoms (e.g. (0.7, 0.5, 0.3, 0.1, 0.05)); to the offsets above are
+        added, for each target, the smallest offset / rank at which the windows share that fraction of their atoms
+        on average (share_profile, offsets_for_shares), so that the consistency plots span the range from nearly
+        identical windows down to windows that barely overlap. None = only consistency_offsets. The partner table
+        then reaches rank 10 x window size (neighbourhood windows).
+    track_max_rank : number of nearest windows searched in the neighbour count of track_modes() (default: the largest
+        of consistency_offsets as given; independent of consistency_shares).
     n_consistency_modes : local modes followed across windows (default n_compare_modes).
     track_threshold, min_shared_weight : see track_modes().
     t_eff : effective number of independent frames (pca_convergence.pca_temporal_analysis),
@@ -1049,11 +1176,25 @@ def local_pca_analysis(u, masses=None, window_size=15, step=1, windows=None,
     """
     u = np.asarray(u, dtype=float)
     T, N, D = u.shape
+    n_win_atoms = int(window_size if windows is None else np.asarray(windows).shape[1])
+    if subspace_dims is None:
+        subspace_dims = auto_subspace_dims(n_win_atoms * D, subspace_dims_fraction, subspace_dims_max)
+    if consistency_offsets is None:
+        consistency_offsets = auto_offsets(n_win_atoms, offsets_fraction, offsets_max)
+    if isinstance(consistency_shares, str):
+        if consistency_shares != "all":
+            raise ValueError(f"consistency_shares must be 'all', None or a sequence of shares, got {consistency_shares!r}")
+        consistency_shares = all_shares(n_win_atoms)
     cfg = dict(n_global_modes=n_global_modes, subspace_dims=tuple(subspace_dims),
                n_compare_modes=n_compare_modes,
                consistency_offsets=tuple(consistency_offsets),
                n_consistency_modes=n_compare_modes if n_consistency_modes is None else n_consistency_modes,
+               consistency_shares=None if consistency_shares is None else tuple(consistency_shares),
+               track_max_rank=int(max(consistency_offsets) if track_max_rank is None else track_max_rank),
                track_threshold=track_threshold, min_shared_weight=min_shared_weight)
+    rank_reach = max(max(consistency_offsets), cfg["track_max_rank"])
+    if consistency_shares is not None:
+        rank_reach = max(rank_reach, 10 * window_size)
     centers = None
     mode = "custom"
     if windows is None:
@@ -1066,12 +1207,16 @@ def local_pca_analysis(u, masses=None, window_size=15, step=1, windows=None,
             if len(mean_positions) != N:
                 raise ValueError(f"mean_positions has {len(mean_positions)} atoms, u has {N}")
             windows, centers = neighborhood_windows(mean_positions, box, window_size, step)
-            partners = window_partners(np.asarray(mean_positions, float)[centers], box,
-                                       max(consistency_offsets))
+            partners = window_partners(np.asarray(mean_positions, float)[centers], box, rank_reach)
         else:
             raise ValueError(f"window_mode must be 'index' or 'neighborhood', got {window_mode!r}")
     windows = np.asarray(windows, dtype=int)
     position = None if centers is None else centers          # x axis of the heatmaps: centre atom index
+    prof_info = None
+    if consistency_shares is not None:                        # offsets that reach shares of common atoms down to ~0
+        offs, prof = share_profile(windows, partners)
+        cfg["consistency_offsets"] = offsets_for_shares(offs, prof, consistency_shares, consistency_offsets)
+        prof_info = (offs, prof)
 
     K = windows.shape[1] * D
     local = local_pca(u, masses, windows=windows, store_eigenvectors=True, position=position)
@@ -1112,7 +1257,7 @@ def local_pca_analysis(u, masses=None, window_size=15, step=1, windows=None,
              "mp_edges_teff": None if t_eff is None else marchenko_pastur_edges(K, t_eff),
              "t_eff": t_eff, "n_windows": len(windows), "n_atoms": N,
              "n_windows_disjoint": N // windows.shape[1]}
-    info = {"mode": mode, "centers": centers, "partners": partners,
+    info = {"mode": mode, "centers": centers, "partners": partners, "share_profile": prof_info,
             "center_positions": None if centers is None else np.asarray(mean_positions, float)[centers]}
     if centers is not None:                                  # spatially organised heat map axis (spatial_window_order)
         info["spatial_order"] = spatial_window_order(info["center_positions"], box)

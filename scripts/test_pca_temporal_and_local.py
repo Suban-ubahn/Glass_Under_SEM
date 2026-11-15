@@ -595,6 +595,285 @@ def test_full_system_participation_spectrum():
 
 
 
+def test_leading_subspace_overlaps_equal_the_svd_definition_for_every_M():
+    from analysis.soft_modes.local_pca import leading_subspace_overlaps, _orth
+    rng = np.random.default_rng(3)
+    K = 30
+    for rows in (3, 12, 30, 45):                                   # fewer rows than columns, equal, more
+        V1 = np.linalg.qr(rng.standard_normal((90, K)))[0]
+        V2 = np.linalg.qr(rng.standard_normal((90, K)))[0]
+        A1, A2 = V1[rng.choice(90, rows, replace=False)], V2[rng.choice(90, rows, replace=False)]
+        ref = []
+        for M in range(1, K + 1):
+            Q1, Q2 = _orth(A1[:, :M]), _orth(A2[:, :M])
+            ref.append(np.linalg.norm(Q1.T @ Q2) ** 2 / min(Q1.shape[1], Q2.shape[1]))
+        assert np.allclose(leading_subspace_overlaps(A1, A2), ref, atol=1e-10)
+    A = rng.standard_normal((40, K))                                # identical blocks: overlap 1 for every M
+    assert np.allclose(leading_subspace_overlaps(A, A), 1.0)
+    B = A.copy(); B[:, 5:] = rng.standard_normal((40, K - 5))      # the first five columns equal: M <= 5 gives 1
+    o = leading_subspace_overlaps(A, B)
+    assert np.allclose(o[:5], 1.0) and o[9] < 0.999
+
+
+def test_share_profile_and_offsets_reach_windows_that_barely_overlap():
+    from analysis.soft_modes.local_pca import share_profile, offsets_for_shares
+    W = index_windows(60, 10, 1)                                    # window w+j shares 10-j atoms
+    offs, prof = share_profile(W)
+    assert list(offs) == list(range(1, 11)) and np.allclose(prof, (10 - offs) / 10)      # j = 10: nothing shared
+    assert offsets_for_shares(offs, prof, (0.5, 0.1), base_offsets=(1,)) == (1, 5, 9)
+    assert offsets_for_shares(offs, prof, (0.0,)) == ()             # an offset at which nothing is shared compares nothing
+    # neighbourhood windows: the partner table is wide enough for the profile to fall to ~0
+    u, pos, box, _ = spatial_displacements()
+    kw = dict(window_size=10, window_mode="neighborhood", mean_positions=pos, box=box, n_global_modes=5,
+              subspace_dims=(1, 3), n_compare_modes=4, consistency_offsets=(1, 2, 4), n_null=0)
+    base = local_pca_analysis(u, None, **kw)
+    res = local_pca_analysis(u, None, consistency_shares=(0.5, 0.3, 0.15, 0.05), **kw)
+    cons = res["consistency"]
+    offs, prof = res["windows_info"]["share_profile"]
+    assert np.all(np.diff(prof) <= 0.05) and prof[0] > 0.5 and prof[-1] < 0.01
+    assert {1, 2, 4} <= set(cons["offsets"]) and len(cons["offsets"]) > 5
+    assert np.all(np.diff(cons["shared_fraction"]) <= 1e-12)        # still ordered: farther windows share less
+    assert cons["shared_fraction"].min() < 0.2 < base["consistency"]["shared_fraction"].min()
+    assert res["tracking"]["max_rank"] == 4 and np.array_equal(res["tracking"]["chain_length"], base["tracking"]["chain_length"])
+    assert res["windows_info"]["partners"].shape[1] >= 100          # rank 10 x window size
+    for j in (1, 2, 4):                                              # the old offsets give the old numbers
+        o, ob = list(cons["offsets"]).index(j), list(base["consistency"]["offsets"]).index(j)
+        assert np.allclose(res["summary"]["consistency_matched"][o], base["summary"]["consistency_matched"][ob], equal_nan=True)
+        assert np.allclose(res["summary"]["consistency_subspace"][o], base["summary"]["consistency_subspace"][ob], equal_nan=True)
+
+
+def test_consistency_covers_all_modes_and_all_subspace_sizes():
+    u, pos, box, _ = spatial_displacements(N=120)
+    res = local_pca_analysis(u, None, window_size=8, window_mode="neighborhood", mean_positions=pos, box=box,
+                             n_global_modes=5, subspace_dims=(1, 3, 10), n_compare_modes=3,
+                             consistency_offsets=(1, 3), consistency_shares=(0.3,), n_null=2)
+    cons, S, K = res["consistency"], res["summary"], res["local"]["n_coords"]
+    n_off, n_win = len(cons["offsets"]), len(res["windows"])
+    assert cons["matched_overlap"].shape == (n_off, n_win, K) and cons["weight"].shape == (n_off, n_win, K)
+    assert cons["subspace_overlap_all"].shape == (n_off, n_win, K)
+    assert cons["matched_index"].shape == (n_off, n_win, 3) and cons["n_modes"] == 3
+    dims = cons["subspace_dims"]
+    assert np.array_equal(cons["subspace_overlap"], cons["subspace_overlap_all"][:, :, dims - 1], equal_nan=True)
+    assert np.allclose(S["consistency_matched"], S["consistency_matched_all"][:, :3], equal_nan=True)
+    assert S["consistency_matched_all"].shape == (n_off, K) and S["consistency_subspace_all"].shape == (n_off, K)
+    assert S["consistency_matched_count"].shape == (n_off, K) and S["consistency_matched_count"].max() <= n_win
+    assert np.array_equal(S["consistency_matched_count"], np.isfinite(np.where(cons["weight"] >= 0.5, cons["matched_overlap"], np.nan)).sum(axis=1))
+    sa = cons["subspace_overlap_all"]
+    assert np.nanmin(sa) >= 0 and np.nanmax(sa) <= 1 + 1e-9 and np.nanmin(cons["matched_overlap"]) >= 0
+    nl = res["null"]
+    assert nl["consistency_matched_all"].shape == (2, n_off, K) and nl["consistency_subspace_all"].shape == (2, n_off, K)
+    assert nl["consistency_matched_count"].shape == (2, n_off, K)
+
+
+def test_consistency_plot_names_every_line_has_a_linear_count_axis_and_rising_share_axes():
+    import matplotlib
+    matplotlib.use("Agg")
+    import visualization.plot as vp
+    u, pos, box, _ = spatial_displacements(N=200)
+    res = local_pca_analysis(u, None, window_size=8, window_mode="neighborhood", mean_positions=pos, box=box,
+                             n_global_modes=5, subspace_dims=(1, 3, 5), n_compare_modes=4, consistency_offsets=(1, 2, 4),
+                             consistency_shares=(0.5, 0.2, 0.05), track_max_rank=6, n_null=2, dip_prominence=0.2)
+    got = {}
+    orig = vp._save
+    vp._save = lambda fig, path, name: got.setdefault("fig", fig)
+    try:
+        vp.plot_local_consistency(res, min_windows=5)
+    finally:
+        vp._save = orig
+    fig = got["fig"]
+    axs = fig.axes
+    a, b, c = axs[0], axs[1], axs[2]
+    assert len(axs) == 3                                                   # the 3D landscapes are not in this figure
+    for ax in (a, b):
+        assert ax.get_xlim() == (0.0, 1.0)                             # rising from 0 to 1 whatever the data cover
+        assert all(np.all(np.diff(ln.get_xdata()) > 0) for ln in ax.lines if len(ln.get_xdata()) > 2)
+        lab = [ln.get_label() for ln in ax.lines]
+        assert all(not x.startswith("_") for x in lab), lab            # every drawn line has a legend entry
+        shown = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert len(shown) >= len(lab)
+    shown_b = [t.get_text() for t in b.get_legend().get_texts()]
+    for M in (1, 3, 5):
+        assert f"M = {M}" in shown_b and any(t.startswith(f"M = {M}: null") for t in shown_b)   # each tick set is named
+    assert c.get_yscale() == "linear" and c.get_ylim()[0] == 0.5          # counts 1..1+max_rank are shown linearly
+    assert list(c.get_yticks()[(c.get_yticks() >= 0.5) & (c.get_yticks() <= 7.5)]) == [1, 2, 3, 4, 5, 6, 7]
+    fig.tight_layout()
+    vp._prune_thin_bands(fig)                                              # what _save does before saving
+    for ax in (a, b, c):                                                   # the legend is exactly what is drawn
+        h, l = ax.get_legend_handles_labels()
+        assert sorted(t.get_text() for t in ax.get_legend().get_texts()) == sorted(l)
+
+
+def test_consistency_is_pooled_by_exact_number_of_common_atoms():
+    u, pos, box, _ = spatial_displacements(N=200)
+    n = 8
+    res = local_pca_analysis(u, None, window_size=n, window_mode="neighborhood", mean_positions=pos, box=box,
+                             n_global_modes=5, subspace_dims=(1, 3), n_compare_modes=3, consistency_offsets=(1, 2),
+                             consistency_shares=(0.5, 0.3, 0.1), n_null=2)
+    cons, S = res["consistency"], res["summary"]
+    assert list(cons["common_atoms"]) == list(range(1, n)) and cons["window_size"] == n   # c = 1..n-1, x = c / n
+    ncom = cons["n_common"]
+    assert ncom.min() >= 0 and ncom.max() <= n
+    pairs = S["consistency_pairs_by_common"]
+    assert list(pairs) == [int((ncom == c).sum()) for c in cons["common_atoms"]]
+    assert pairs[0] > 0 and pairs[-1] > 0                  # the data reach 1 / n common atoms and n - 1 common atoms
+    for i, c in enumerate(cons["common_atoms"]):
+        m = ncom == c
+        assert np.allclose(S["consistency_subspace_by_common"][i], np.nanmean(cons["subspace_overlap_all"][m], axis=0))
+    assert res["null"]["consistency_subspace_by_common"].shape[1:] == S["consistency_subspace_by_common"].shape
+
+
+def test_subspace_dims_offsets_and_shares_follow_the_rules_of_the_config():
+    from analysis.soft_modes.local_pca import auto_subspace_dims, auto_offsets, all_shares
+    assert auto_subspace_dims(90, 0.10, 15) == tuple(range(1, 10))            # 10 % of 90
+    assert auto_subspace_dims(300, 0.10, 15) == tuple(range(1, 16))            # 30 -> capped at 15
+    assert auto_subspace_dims(45, 0.10, 15) == tuple(range(1, 6))              # 4.5 -> 5 (nearest, half up)
+    assert auto_offsets(30, 0.33, 15) == tuple(range(1, 11))                   # 9.9 -> 10
+    assert auto_offsets(100, 0.33, 15) == tuple(range(1, 16))                  # 33 -> capped at 15
+    assert auto_offsets(3, 0.33, 15) == (1,)                                   # never empty
+    assert all_shares(4) == (0.25, 0.5, 0.75) and len(all_shares(30)) == 29
+    u, pos, box, _ = spatial_displacements(N=200)
+    n = 8
+    res = local_pca_analysis(u, None, window_size=n, window_mode="neighborhood", mean_positions=pos, box=box,
+                             n_global_modes=5, subspace_dims=None, n_compare_modes=3, consistency_offsets=None,
+                             consistency_shares="all", n_null=0, subspace_dims_fraction=0.2, subspace_dims_max=3,
+                             offsets_fraction=0.5, offsets_max=15)
+    p = res["params"]
+    assert p["subspace_dims"] == (1, 2, 3)                                     # 20 % of 24 = 4.8 -> 5, capped at 3
+    assert p["consistency_shares"] == tuple(c / n for c in range(1, n))
+    assert set(range(1, 5)) <= set(p["consistency_offsets"])                   # 1..4 (50 % of 8), plus offsets for the shares
+    assert list(res["consistency"]["subspace_dims"]) == [1, 2, 3]
+    try:
+        local_pca_analysis(u, None, window_size=n, window_mode="neighborhood", mean_positions=pos, box=box,
+                           consistency_shares="some")
+        raise AssertionError("a wrong string must be refused")
+    except ValueError:
+        pass
+
+
+def test_pooled_matched_overlap_is_a_weighted_mean_over_every_pair_and_the_curves_reach_the_data_limits():
+    import matplotlib
+    matplotlib.use("Agg")
+    import visualization.plot as vp
+    u, pos, box, _ = spatial_displacements(N=200)
+    n = 8
+    res = local_pca_analysis(u, None, window_size=n, window_mode="neighborhood", mean_positions=pos, box=box,
+                             n_global_modes=5, subspace_dims=None, n_compare_modes=4, consistency_offsets=None,
+                             consistency_shares="all", n_null=2)
+    cons, S = res["consistency"], res["summary"]
+    ncom, ov, wt = cons["n_common"], cons["matched_overlap"], cons["weight"]
+    for i, c in enumerate(cons["common_atoms"]):
+        m = ncom == c
+        if not m.any():
+            continue
+        exp = (ov[m] * wt[m]).sum(axis=0) / wt[m].sum(axis=0)
+        assert np.allclose(S["consistency_matched_by_common"][i], exp, equal_nan=True)
+    have = np.where(S["consistency_pairs_by_common"] > 0)[0]
+    got = {}
+    orig = vp._save
+    vp._save = lambda fig, path, name: got.setdefault("fig", fig)
+    try:
+        vp.plot_local_consistency(res)
+    finally:
+        vp._save = orig
+    for ax in got["fig"].axes[:2]:                                             # every line spans all shares with pairs
+        for ln in ax.lines:
+            x = np.asarray(ln.get_xdata(), float)
+            y = np.asarray(ln.get_ydata(), float)
+            if len(x) == len(cons["common_atoms"]):
+                assert np.isfinite(y[have]).all(), ln.get_label()
+                assert x[have][0] == cons["common_atoms"][have][0] / n and x[have][-1] == cons["common_atoms"][have][-1] / n
+
+
+def test_interactive_landscapes_are_rotatable_ascending_and_have_one_legend_entry_per_kind():
+    import visualization.plot as vp
+    try:
+        import plotly  # noqa: F401
+    except ImportError:
+        print("    (plotly is not installed: landscape test skipped)")
+        return
+    u, pos, box, _ = spatial_displacements(N=200)
+    res = local_pca_analysis(u, None, window_size=8, window_mode="neighborhood", mean_positions=pos, box=box,
+                             n_global_modes=5, subspace_dims=None, n_compare_modes=4, consistency_offsets=None,
+                             consistency_shares="all", n_null=2, dip_prominence=0.2)
+    fig = vp._consistency_landscape_figure(res)
+    surfaces = [t for t in fig.data if t.type == "surface"]
+    assert len(surfaces) == 4                                                  # observed + null, for (a) and (b)
+    for t in surfaces:
+        assert np.all(np.diff(t.y) > 0) and t.y[0] > 0 and t.y[-1] < 1        # share rises, between 1/n and (n-1)/n
+        assert np.all(np.diff(t.x) > 0)
+    assert fig.layout.scene.dragmode == "orbit" and fig.layout.scene2.dragmode == "orbit"   # free rotation by dragging
+    names = [t.name for t in fig.data if t.showlegend]
+    assert len(names) == len(set(names))                                       # one entry per kind, not per landscape
+    assert "observed (window mean)" in names and any(x.startswith("shifted-column null") for x in names)
+    assert ("detected dip modes" in names) == any(t.type == "scatter3d" for t in fig.data)
+    import os
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        path = vp.plot_local_consistency_landscapes(res, save_path=os.path.join(d, "landscapes.html"))
+        assert os.path.getsize(path) > 1e6 and "plotly" in open(path, encoding="utf-8").read(2000000).lower()
+
+
+def test_a_band_thinner_than_a_line_is_not_drawn_and_not_in_the_legend():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import visualization.plot as vp
+    x = np.linspace(0, 1, 20)
+    fig, ax = plt.subplots(figsize=(5, 3))
+    ax.plot(x, x, label="curve")
+    vp._band_fill(ax, x, x - 0.2, x + 0.2, color="C0", alpha=0.3, label="thick band")
+    vp._band_fill(ax, x, x + 1e-4, x + 2e-4, color="C1", alpha=0.3, label="thin band")
+    vp._null_band(ax, x, x + 0.5, x + 0.5 + 1e-4, "thin null", q=95)
+    vp._band_span(ax, "v", 0.5, 0.5 + 1e-4, color="C2", label="thin span")
+    thick_null = vp._null_band(ax, x, x * 0 - 0.5, x * 0 - 0.2, "thick null", q=95)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(-1, 2)
+    ax.legend(loc="upper left", fontsize=6)
+    fig.tight_layout()
+    lim = (ax.get_xlim(), ax.get_ylim())
+    assert vp._prune_thin_bands(fig) == 3                       # thin band, thin null band, thin span
+    labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert not any("thin band" in t or "thin span" in t or "thin null: band" in t for t in labels), labels
+    assert "thick band" in labels and "curve" in labels and any("thick null: band" in t for t in labels)
+    assert "null median" in labels and sum(t.startswith("null 95% (dashed)") for t in labels) == 1   # only the thick one
+    assert (ax.get_xlim(), ax.get_ylim()) == lim                # limits are kept
+    h, l = ax.get_legend_handles_labels()
+    assert sorted(labels) == sorted(l)                          # everything in the legend is drawn, and v.v.
+    assert vp._prune_thin_bands(fig) == 0                       # nothing left to remove
+    # the rule is "narrower than matplotlib's default line width"
+    fig2, ax2 = plt.subplots(figsize=(5, 3))
+    ax2.set_xlim(0, 1)
+    ax2.set_ylim(0, 1)
+    fig2.tight_layout()
+    h_pt = ax2.get_position().height * fig2.get_figheight() * 72.0         # axis height in points for the range 0..1
+    w_line = plt.rcParams["lines.linewidth"]
+    vp._band_fill(ax2, [0, 1], [0.5, 0.5], [0.5 + 0.9 * w_line / h_pt] * 2, color="C0", label="just under a line")
+    vp._band_fill(ax2, [0, 1], [0.2, 0.2], [0.2 + 1.1 * w_line / h_pt] * 2, color="C1", label="just over a line")
+    ax2.legend()
+    assert vp._prune_thin_bands(fig2) == 1
+    assert [t.get_text() for t in ax2.get_legend().get_texts()] == ["just over a line"]
+    plt.close("all")
+
+
+def test_legend_above_the_data_is_rebuilt_when_a_thin_band_is_dropped():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import visualization.plot as vp
+    x = np.linspace(0, 1, 20)
+    fig, ax = plt.subplots(figsize=(5, 3))
+    ax.plot(x, x, label="curve")
+    vp._null_band(ax, x, x, x + 1e-5, "null", q=95)
+    ax.set_ylim(0, 1)
+    vp._legend_on_top(ax, ncol=1)
+    top_with = ax.get_ylim()[1]
+    fig.tight_layout()
+    assert vp._prune_thin_bands(fig) == 1
+    assert sorted(t.get_text() for t in ax.get_legend().get_texts()) == ["curve", "null median"]
+    assert ax.get_ylim()[1] < top_with                          # less head room is needed for the shorter legend
+    plt.close("all")
+
+
 if __name__ == "__main__":
     tests = [(k, v) for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for name, fn in tests:

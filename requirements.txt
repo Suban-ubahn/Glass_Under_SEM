@@ -57,6 +57,7 @@ mpmath
 msgpack==1.1.2
 multidict==6.7.1
 munkres==1.1.4
+narwhals==2.27.1
 nest_asyncio==1.6.0
 networkx==3.6.1
 numba==0.64.0
@@ -72,6 +73,7 @@ pickleshare==0.7.5
 pillow==12.1.1
 pip==26.0.1
 platformdirs==4.9.4
+plotly==7.1.0
 prompt_toolkit==3.0.52
 propcache==0.4.1
 psutil==7.2.2

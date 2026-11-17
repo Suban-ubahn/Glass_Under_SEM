@@ -30,6 +30,10 @@ from analysis.soft_modes.tls import (
 )
 from analysis.soft_modes.comparison import run_full_comparison
 from analysis.soft_modes.source import soft_source_analysis
+from analysis.soft_modes.softness_holes_defects import (
+    hole_proximity_groups, defect_groups_per_frame,
+    softness_by_hole_proximity, softness_by_defect,
+)
 from analysis.soft_modes.element_stats import (
     get_element_symbols, score_by_element, mode_dominant_elements,
     persistence_above_threshold, persistence_by_element, print_element_table,
@@ -55,6 +59,8 @@ from visualization.plot import (
     plot_participation_spectrum, plot_mode_atom_distribution_by_element, plot_softness_map,
     plot_mode_amplitude_distribution, plot_roc_curve, plot_soft_tls_scatter,
     plot_distribution_by_element, plot_d2min_by_soft_neighbours, plot_mode_amplitude_grid,
+    plot_softness_distribution_by_hole_proximity, plot_softness_distribution_by_defect_degree,
+    plot_softness_hole_distance, plot_softness_defect_comparison,
 )
 from visualization.animate import (
     animate_distribution_by_element, animate_d2min_softness_side_by_side,
@@ -439,5 +445,38 @@ if __name__ == "__main__":
                     "null_frac": f["temporal"]["frac_null_mean"], "z_frac": f["temporal"]["frac_z"]}
         for k, f in when["fields"].items()
     }, row_label="field", col_width=12)
+
+    # --- 7. Softness vs. free-volume holes (FFT peaks) and structural defects ---
+    # softness_series (step 5) = every atom's softness at every frame. Holes: FFT peaks redetected on every
+    # frame, atoms grouped by their distance to the nearest peak (SOFTNESS_HOLE_N_BINS groups, quantiles of
+    # that frame). Defects: counted anew on every frame (graph with the fixed g(r) cutoff, coordination
+    # statistics of that frame), degree of defect in SOFTNESS_DEFECT_K_LEVELS (config.py).
+    # Definitions: analysis/soft_modes/softness_holes_defects.py.
+    print("\n=== Softness vs. holes (FFT) and defects (per frame) ===")
+    hole_groups = hole_proximity_groups(trajectory)
+    hole_stats = softness_by_hole_proximity(softness_series, hole_groups)
+    plot_softness_distribution_by_hole_proximity(
+        hole_stats, title="Softness distribution by distance to nearest hole peak (global PCA)",
+        save_path=os.path.join(OUTPUT_DIR, "softness_distribution_hole_distance.png"),
+    )
+    plot_softness_hole_distance(
+        hole_stats, title="Softness by distance to nearest hole peak (global PCA)",
+        save_path=os.path.join(OUTPUT_DIR, "softness_hole_distance.png"),
+    )
+
+    defect_groups = defect_groups_per_frame(trajectory)
+    defect_stats = softness_by_defect(softness_series, defect_groups, frame_indices_traj)
+    print(f"  defect atoms per frame: mean {defect_stats['mask'].sum(axis=1).mean():.1f} / {n_atoms} "
+          f"({defect_stats['defect_fraction'].mean():.1%}; per-frame range {defect_stats['defect_fraction'].min():.1%}"
+          f" - {defect_stats['defect_fraction'].max():.1%}); mean atoms per degree-of-defect group: "
+          f"{np.round(defect_stats['group_counts'].mean(axis=0), 1).tolist()}")
+    plot_softness_distribution_by_defect_degree(
+        defect_stats, title="Softness distribution by degree of defect (global PCA)",
+        save_path=os.path.join(OUTPUT_DIR, "softness_distribution_defect_degree.png"),
+    )
+    plot_softness_defect_comparison(
+        defect_stats, title="Softness by defect membership (global PCA)",
+        save_path=os.path.join(OUTPUT_DIR, "softness_defect_comparison.png"),
+    )
 
     print("\nDone.")

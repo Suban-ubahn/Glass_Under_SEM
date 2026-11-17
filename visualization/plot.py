@@ -11,6 +11,7 @@ from scipy.signal import savgol_filter
 from utils import get_output_dir
 from config import VOXEL_EDGE
 from config import R_CUT_VOID
+from config import SOFTNESS_DISTRIBUTION_BINS
 OUTPUT_DIR = get_output_dir()
 
 
@@ -2382,3 +2383,164 @@ def plot_dip_eigenvectors(inv, save_path=None):
     fig.suptitle("Real-space eigenvectors of the dip modes (axes in Å: plane of largest extent of the window's atoms)",
                  fontsize=10, y=1.0)
     _save(fig, save_path, "local_pca_dip_eigenvectors.png")
+
+
+# =============================================================
+# Softness vs. free-volume holes (FFT) and structural defects
+#   (analysis/soft_modes/softness_holes_defects.py; the softness is the full-system one
+#    or the local-PCA one, the plots are the same)
+# =============================================================
+
+def _hole_group_labels(stats):
+    """Legend labels of the distance-to-nearest-hole groups, with their average distance range."""
+    n_bins = stats["bin_means"].shape[1]
+    prefixes = ["Near", "Mid", "Far"] if n_bins == 3 else [f"Bin {b}" for b in range(n_bins)]
+    mean_edges = np.nanmean(stats["bin_edges"], axis=0)  # shape (n_bins+1,), Å
+    return [
+        f"{prefixes[b]} ({mean_edges[b]:.1f}\u2013{mean_edges[b + 1]:.1f} \u00c5, avg)"
+        for b in range(n_bins)
+    ]
+
+
+def _defect_degree_labels(k_levels):
+    """Legend labels of the degree-of-defect groups: z = standard deviations below the element's mean coordination."""
+    k = list(k_levels)
+    labels = [f"z \u2264 {k[0]:g}"]
+    labels += [f"{k[g - 1]:g} < z \u2264 {k[g]:g}" for g in range(1, len(k))]
+    labels.append(f"z > {k[-1]:g}")
+    return labels
+
+
+def _plot_softness_group_distributions(pooled, labels, colors, bins, xlabel, title, legend_title, save_path):
+    """Overlaid softness histograms of several groups plus the combined one (same layout as plot_distribution_by_element)."""
+    nonempty = [v for v in pooled if len(v)]
+    if not nonempty:
+        raise ValueError("no finite softness values to plot")
+    combined = np.concatenate(nonempty)
+    xmin, xmax = np.min(combined), np.percentile(combined, 99.5)
+    edges = np.linspace(xmin, xmax, bins + 1)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for color, label, vals in zip(colors, labels, pooled):
+        if len(vals) == 0:
+            continue
+        ax.hist(vals, bins=edges, density=True, alpha=0.45, color=color,
+                label=f"{label}, n={len(vals)}")
+    ax.hist(combined, bins=edges, density=True, histtype="step", color="black",
+            linewidth=2, label=f"Combined (n={len(combined)})")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Probability density")
+    ax.set_title(title)
+    ax.legend(title=legend_title)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    fig.savefig(save_path, dpi=150)
+    plt.close(fig)
+    print(f"Saved: {save_path}")
+
+
+def plot_softness_distribution_by_hole_proximity(stats, bins=SOFTNESS_DISTRIBUTION_BINS, save_path=None,
+                                                 xlabel="Softness score (a.u.)",
+                                                 title="Softness distribution by distance to nearest hole peak"):
+    """
+    Distribution of the softness of the atoms of each distance-to-nearest-hole group (near/mid/far,
+    recomputed each frame), pooled over every atom at every frame.
+
+    stats : analysis.soft_modes.softness_holes_defects.softness_by_hole_proximity()
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "softness_distribution_hole_distance.png")
+    n_bins = len(stats["pooled"])
+    _plot_softness_group_distributions(
+        stats["pooled"], _hole_group_labels(stats), cm.viridis(np.linspace(0, 0.85, n_bins)),
+        bins, xlabel, title, None, save_path)
+
+
+def plot_softness_distribution_by_defect_degree(stats, bins=SOFTNESS_DISTRIBUTION_BINS, save_path=None,
+                                                xlabel="Softness score (a.u.)",
+                                                title="Softness distribution by degree of defect"):
+    """
+    Distribution of the softness of the atoms of each degree-of-defect group (z = standard deviations
+    below the mean coordination of the element, counted anew on every frame; the groups are set by
+    config.SOFTNESS_DEFECT_K_LEVELS), pooled over every atom at every frame.
+
+    stats : analysis.soft_modes.softness_holes_defects.softness_by_defect()
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "softness_distribution_defect_degree.png")
+    n_groups = len(stats["pooled"])
+    avg_counts = np.mean(stats["group_counts"], axis=0)  # atoms per frame in each group, averaged over the frames
+    labels = [f"{lab} (avg {n:.1f} atoms/frame)" for lab, n in zip(_defect_degree_labels(stats["k_levels"]), avg_counts)]
+    _plot_softness_group_distributions(
+        stats["pooled"], labels, cm.viridis(np.linspace(0, 0.85, n_groups)),
+        bins, xlabel, title, "z: \u03c3 below mean coordination of the element", save_path)
+
+
+def plot_softness_hole_distance(stats, save_path=None, smooth=False, smooth_window=10,
+                                title="Softness by distance to nearest hole peak"):
+    """
+    Mean softness per distance-to-nearest-hole group (near/mid/far, recomputed each frame), over the
+    trajectory: the softness counterpart of plot_d2min_hole_distance. If the "near" line sits
+    consistently above "far", the softness is concentrated close to wherever holes currently are.
+
+    smooth=True applies a Savitzky-Golay filter (window=smooth_window) to each line for display only.
+
+    stats : analysis.soft_modes.softness_holes_defects.softness_by_hole_proximity()
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "softness_hole_distance.png")
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+
+    frames = stats["frame_indices"]
+    bin_means = stats["bin_means"]
+    n_bins = bin_means.shape[1]
+    labels = _hole_group_labels(stats)
+    colors = cm.viridis(np.linspace(0, 0.85, n_bins))
+
+    for b in range(n_bins):
+        y = bin_means[:, b]
+        if smooth:
+            y = _smooth_series(y, window=smooth_window)
+        ax.plot(frames, y, label=labels[b], color=colors[b])
+
+    ax.set_xlabel("Frame")
+    ax.set_ylabel("Mean softness score (a.u.)")
+    ax.set_title(title)
+    ax.legend()
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+    return fig, ax
+
+
+def plot_softness_defect_comparison(stats, save_path=None, title="Softness by defect membership"):
+    """
+    Mean softness of defect vs non-defect atoms over the trajectory: the softness counterpart of
+    plot_d2min_defect_comparison. If the defect line consistently sits above the non-defect line,
+    the softness is concentrated at defect sites.
+
+    stats : analysis.soft_modes.softness_holes_defects.softness_by_defect()
+    """
+    if save_path is None:
+        save_path = os.path.join(OUTPUT_DIR, "softness_defect_comparison.png")
+    fig, ax = plt.subplots(figsize=(7, 5))
+
+    frames = stats["frame_indices"]
+    ax.plot(frames, stats["mean_defect"], label="Defect atoms", color="crimson")
+    ax.plot(frames, stats["mean_nondefect"], label="Non-defect atoms", color="steelblue")
+
+    ax.set_xlabel("Frame")
+    ax.set_ylabel("Mean softness score (a.u.)")
+    ax.set_title(title)
+    ax.legend()
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved: {save_path}")
+
+    return fig, ax

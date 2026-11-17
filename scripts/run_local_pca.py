@@ -35,6 +35,11 @@ from analysis.soft_modes.local_pca_dips import (
     investigate_dip_modes, write_dip_csv, dip_investigation_arrays, print_dip_investigation,
 )
 from analysis.soft_modes.pca_reliability import _flat, _effective_frames
+from analysis.soft_modes.local_softness import local_softness_trajectory
+from analysis.soft_modes.softness_holes_defects import (
+    hole_proximity_groups, defect_groups_per_frame,
+    softness_by_hole_proximity, softness_by_defect,
+)
 from config import (
     TRAJECTORY_FILE,
     LOCAL_PCA_WINDOW_MODE, LOCAL_PCA_WINDOW_SIZE, LOCAL_PCA_STEP, LOCAL_PCA_N_GLOBAL_MODES,
@@ -52,6 +57,8 @@ from visualization.plot import (
     plot_local_pca_spectra, plot_local_participation, plot_local_vs_global, plot_local_consistency,
     plot_local_consistency_landscapes,
     plot_mode_amplitude_grid, plot_dip_eigenvectors,
+    plot_softness_distribution_by_hole_proximity, plot_softness_distribution_by_defect_degree,
+    plot_softness_hole_distance, plot_softness_defect_comparison,
 )
 
 OUTPUT_DIR = get_output_dir()
@@ -137,3 +144,36 @@ if __name__ == "__main__":
     plot_local_consistency_landscapes(res, save_path=os.path.join(OUTPUT_DIR, "local_pca_consistency_landscapes.html"))
     save_local_pca(res, os.path.join(OUTPUT_DIR, "local_pca.npz"),
                    eigenvectors_dtype=np.float32 if LOCAL_PCA_SAVE_EIGENVECTORS else None)
+
+    # Softness of the local PCA vs. free-volume holes (FFT peaks) and structural defects.
+    # Per-atom, per-frame softness: for every window the softness of its atoms from the frames 0..t (all modes,
+    # as softness_trajectory), averaged over all windows that contain the atom (analysis/soft_modes/local_softness.py).
+    # Then the same comparisons as the full-system softness in run_soft_mode_tls_pipeline.py
+    # (analysis/soft_modes/softness_holes_defects.py): holes = FFT peaks redetected on every frame, defects =
+    # counted anew on every frame (graph with the fixed g(r) cutoff).
+    print("\n=== Local-PCA softness vs. holes (FFT) and defects (per frame) ===")
+    softness_local, n_windows_per_atom = local_softness_trajectory(u, masses, res["windows"])
+    print(f"  windows containing an atom: min {n_windows_per_atom.min()}, "
+          f"median {np.median(n_windows_per_atom):.0f}, max {n_windows_per_atom.max()}")
+
+    hole_groups = hole_proximity_groups(trajectory)
+    hole_stats = softness_by_hole_proximity(softness_local, hole_groups)
+    plot_softness_distribution_by_hole_proximity(
+        hole_stats, title="Softness distribution by distance to nearest hole peak (local PCA)",
+        save_path=os.path.join(OUTPUT_DIR, "softness_distribution_hole_distance.png"))
+    plot_softness_hole_distance(
+        hole_stats, title="Softness by distance to nearest hole peak (local PCA)",
+        save_path=os.path.join(OUTPUT_DIR, "softness_hole_distance.png"))
+
+    defect_groups = defect_groups_per_frame(trajectory)
+    defect_stats = softness_by_defect(softness_local, defect_groups)
+    print(f"  defect atoms per frame: mean {defect_stats['mask'].sum(axis=1).mean():.1f} / {len(mean_pos)} "
+          f"({defect_stats['defect_fraction'].mean():.1%}; per-frame range {defect_stats['defect_fraction'].min():.1%}"
+          f" - {defect_stats['defect_fraction'].max():.1%}); mean atoms per degree-of-defect group: "
+          f"{np.round(defect_stats['group_counts'].mean(axis=0), 1).tolist()}")
+    plot_softness_distribution_by_defect_degree(
+        defect_stats, title="Softness distribution by degree of defect (local PCA)",
+        save_path=os.path.join(OUTPUT_DIR, "softness_distribution_defect_degree.png"))
+    plot_softness_defect_comparison(
+        defect_stats, title="Softness by defect membership (local PCA)",
+        save_path=os.path.join(OUTPUT_DIR, "softness_defect_comparison.png"))

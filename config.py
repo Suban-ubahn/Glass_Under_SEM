@@ -190,3 +190,15 @@ LOCAL_PCA_DIP_SEARCH         = None            # (first, last) local mode range 
 LOCAL_PCA_DIP_MAX_MODES      = 3               # investigate at most this many detected modes (largest prominence first)
 LOCAL_PCA_DIP_QUANTILES      = (0.05, 0.5, 0.95)   # representative windows: those at these quantiles of n_part of the mode (low, median, high)
 LOCAL_PCA_DIP_TOP_ATOMS      = 5               # atoms with the largest norm fraction listed per mode and window (CSV)
+
+
+# ------------------------------------------------------------
+# Softness vs. holes (FFT) and defects
+#   (analysis/soft_modes/softness_holes_defects.py,
+#    analysis/soft_modes/local_softness.py;
+#    scripts/run_soft_mode_tls_pipeline.py, scripts/run_local_pca.py)
+# ------------------------------------------------------------
+
+SOFTNESS_HOLE_N_BINS       = 3             # atoms of every frame split into this many groups by distance to the nearest FFT hole peak (quantiles of that frame: nearest ... farthest; 3 = near / mid / far)
+SOFTNESS_DEFECT_K_LEVELS   = (0.0, 1.0, 2.0)   # degree of defect: z = how many standard deviations an atom's coordination lies below the mean of its element in that frame (defects are counted anew on every frame; only the edge cutoff, cutoffs.CUTOFF_DICT, is fixed); atoms are grouped by the number of these levels that z exceeds: z <= k0, k0 < z <= k1, ..., z > k_last. z > DEFECT_K is the defect classifier of graph/defects.py (classify_defects_statistical)
+SOFTNESS_DISTRIBUTION_BINS = 100           # histogram bins of the softness distributions

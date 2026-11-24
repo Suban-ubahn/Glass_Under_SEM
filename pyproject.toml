@@ -13,5 +13,5 @@ py-modules = ["config", "cutoffs", "utils"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["data_io*", "holes*", "graph*", "diffraction*", "analysis*", "visualization*"]
+include = ["data_io*", "md*", "holes*", "graph*", "diffraction*", "analysis*", "visualization*"]
 namespaces = false

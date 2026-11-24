@@ -31,6 +31,8 @@ python scripts/simulate_4dstem.py
 echo "== Verifying output =="
 python -c "
 import os
-assert os.path.exists('outputs/simulate_4dstem/4d_stem.zarr'), 'Expected output outputs/simulate_4dstem/4d_stem.zarr not found'
-print('4d_stem.zarr created successfully')
+from config import output_folder
+path = 'outputs/' + output_folder('simulate_4dstem') + '/4d_stem.zarr'
+assert os.path.exists(path), f'Expected output {path} not found'
+print(path, 'created successfully')
 "

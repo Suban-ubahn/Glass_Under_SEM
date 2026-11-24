@@ -7,8 +7,9 @@
 #   conda activate pypty
 #   python scripts/pypty_reconstruct.py
 #
-# Requires: outputs/pypty_setup/{4d_stem.h5,scan_metadata.json}  (from scripts/pypty_setup.py)
-# Output:   outputs/pypty_reconstruct/
+# Requires: outputs/pypty_setup_<tag>/{4d_stem.h5,scan_metadata.json}  (from scripts/pypty_setup.py)
+# Output:   outputs/pypty_reconstruct_<tag>/
+# (<tag> = name of the active dataset, config.ACTIVE_DATASET)
 # =============================================================
 
 import sys
@@ -27,11 +28,13 @@ from config import (
     CONVERGENCE_SEMIANGLE_MRAD,
     DEFOCUS,
     SAMPLING_FACTOR,
+    SAMPLE_NAME,
+    output_folder,
 )
 
-H5_PATH       = "outputs/pypty_setup/4d_stem.h5"
-META_PATH     = "outputs/pypty_setup/scan_metadata.json"
-OUTPUT_FOLDER = "outputs/pypty_reconstruct"
+H5_PATH       = f"outputs/{output_folder('pypty_setup')}/4d_stem.h5"
+META_PATH     = f"outputs/{output_folder('pypty_setup')}/scan_metadata.json"
+OUTPUT_FOLDER = f"outputs/{output_folder('pypty_reconstruct')}"
 
 # ------------------------------------------------------------
 # Load metadata
@@ -42,13 +45,17 @@ def load_scan_metadata():
         m = json.load(f)
     print(f"  Scan grid:  {m['scan_x']} × {m['scan_y']} = {m['scan_x']*m['scan_y']} positions")
     print(f"  Scan step:  {m['scan_step_A']:.4f} Å")
-    return m["scan_x"], m["scan_y"], m["scan_step_A"]
+    for key in ("total_thickness", "chemical_formula"):
+        if key not in m:
+            raise KeyError(f"'{key}' missing in {META_PATH} -- re-run scripts/pypty_setup.py")
+    print(f"  Sample:     {m['chemical_formula']}, thickness {m['total_thickness']:.3f} Å")
+    return m["scan_x"], m["scan_y"], m["scan_step_A"], m["total_thickness"], m["chemical_formula"]
 
 # ------------------------------------------------------------
 # Build experimental parameters
 # ------------------------------------------------------------
 
-def build_experimental_params(scan_x, scan_y, scan_step_A):
+def build_experimental_params(scan_x, scan_y, scan_step_A, total_thickness, chemical_formula):
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
     return {
         "output_folder"      : OUTPUT_FOLDER,
@@ -69,15 +76,15 @@ def build_experimental_params(scan_x, scan_y, scan_step_A):
         "PLRotation_deg"     : 0.0,
         "bright_threshold"   : 0.2,
 
-        "total_thickness"    : 49.0,
+        "total_thickness"    : total_thickness,
         "num_slices"         : 1,
 
         "plot"               : False,
         "print_flag"         : 3,
         "data_pad"           : None,
 
-        "chemical_formula"   : "Zr50Cu50",
-        "sample_name"        : "Zr50Cu50_metallic_glass_MD_average",
+        "chemical_formula"   : chemical_formula,
+        "sample_name"        : SAMPLE_NAME,
 
         "compute_batch"      : 8,
         "backend"            : "gpu",
@@ -94,10 +101,10 @@ if __name__ == "__main__":
     t0 = time.time()
 
     print("Reading scan shape and scan step from jason metadata...")
-    scan_x, scan_y, scan_step_A = load_scan_metadata()
+    scan_x, scan_y, scan_step_A, total_thickness, chemical_formula = load_scan_metadata()
 
     print("Building experimental parameters...")
-    experimental_params = build_experimental_params(scan_x, scan_y, scan_step_A)
+    experimental_params = build_experimental_params(scan_x, scan_y, scan_step_A, total_thickness, chemical_formula)
 
     print("Joining with default pypty preset...")
     pypty_params = pypty.initialize.append_exp_params(

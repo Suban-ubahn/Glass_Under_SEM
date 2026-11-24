@@ -51,10 +51,16 @@ The trajectory is **not tracked by git**. Put the LAMMPS dump here (the path is 
 data/trj.zr50cu50_6750_vib
 ```
 
+A dump can also be generated here: `python scripts/generate_md.py` (cluster: `sbatch slurm/run_md.sh`) runs a LAMMPS melt-quench of the dataset `MD_DATASET` with the parameters of the `MD_*` block of `config.py` and writes the dump to that dataset's `trajectory_file` in `data/`.
+
+### Datasets
+
+`config.py` holds a `DATASETS` registry: for every dataset its `trajectory_file`, the LAMMPS `type_to_z` (type → atomic number), `sample_name` for the reconstruction and, optionally, `peak_search_window` (r-range in which the first peak of every partial g(r) is searched; it has to contain the first-neighbour peak of every species pair). `ACTIVE_DATASET` selects the dataset every analysis script works on. The key of an entry is the name of the dataset, named after the data: elements with their atomic percent, lowercase, then `_sim` for a simulation (`zr50cu50_sim`, `al40o60_sim`) or e.g. `_ptycho` for a measurement. Elements, species pairs, cutoffs, plot labels and the thickness / formula passed to pypty are derived from it, so a new composition needs only a new entry there. Every script writes to `outputs/<script_name>_<tag>/`, where `<tag>` is the name (key) of the dataset it works on (`config.output_folder()` is the one place that builds the name). Results of different datasets (simulations, ptychographic reconstructions of measurements, …) therefore never share a folder.
+
 ### Smoke test
 
 ```bash
-python scripts/run_d2min.py        # quick; writes outputs/run_d2min/
+python scripts/run_d2min.py        # quick; writes outputs/run_d2min_zr50cu50_sim/   (<tag> = name of the active dataset)
 ```
 
 ### Whole pipeline
@@ -67,11 +73,11 @@ bash scripts/run_pipeline.sh [--skip-diffraction] [--skip-animations]
 
 ## Conventions (read this first)
 
-1. **Libraries vs. entry points.** The packages (`holes/`, `graph/`, `analysis/`, `diffraction/`, `visualization/`, `data_io/`) only contain functions. They have no `__main__` blocks. Everything you *run* lives in `scripts/` (and `slurm/` for cluster jobs).
+1. **Libraries vs. entry points.** The packages (`holes/`, `graph/`, `analysis/`, `diffraction/`, `visualization/`, `data_io/`, `md/`) only contain functions. They have no `__main__` blocks. Everything you *run* lives in `scripts/` (and `slurm/` for cluster jobs).
 2. **Computation is separate from plotting.** Computation lives in `analysis/`, `holes/`, `graph/`, `diffraction/`. Every plotting function is in `visualization/plot.py`, animations in `visualization/animate/`.
-3. **Every script writes only to `outputs/<script_name>/`.** `python scripts/run_d2min.py` writes into `outputs/run_d2min/`, nothing else. See [Outputs](#outputs).
+3. **Every script writes only to `outputs/<script_name>_<tag>/`.** `<tag>` is the name of the active dataset (`ACTIVE_DATASET` in `config.py`): `python scripts/run_d2min.py` writes into `outputs/run_d2min_zr50cu50_sim/` for the Zr–Cu simulation, nothing else. See [Outputs](#outputs).
 4. **Inputs go in `data/`, generated files in `outputs/`.** Both are gitignored.
-5. **Constants live in `config.py`.** It contains only constants and is cheap to import in any environment (including the `pypty` env). Neighbour cutoffs derived from g(r) are computed in `cutoffs.py`, because importing that module reads the trajectory (cached in `.cutoff_cache.json`).
+5. **Constants live in `config.py`.** It contains only constants and is cheap to import in any environment (including the `pypty` env). Neighbour cutoffs derived from g(r) are computed in `cutoffs.py`, because importing that module reads the trajectory (cached in `.cutoff_cache.json`). Everything that depends on *which* dataset is analysed lives in the `DATASETS` registry of `config.py` (see [Datasets](#datasets)).
 
 ---
 
@@ -79,11 +85,13 @@ bash scripts/run_pipeline.sh [--skip-diffraction] [--skip-animations]
 
 ```text
 Glass_Under_SEM/
-├── config.py                 constants only (paths, radii, thresholds, simulation parameters)
-├── cutoffs.py                g(r)-derived neighbour cutoffs (CUTOFF_ZRZR, PEAK_ZRCU, …)
+├── config.py                 constants only (dataset registry, thresholds, MD and simulation parameters)
+├── cutoffs.py                g(r)-derived neighbour cutoffs (PARTIAL_CUTOFFS, CUTOFF_DICT, …)
 ├── utils.py                  shared helpers: output folders, g(r), unwrapping, cutoff cache
 │
 ├── data_io/trajectory.py     load_trajectory() – the one place the dump file is read
+│
+├── md/                       melt-quench MD generation: potentials.py, lammps_input.py (config.MD_* → LAMMPS input), run.py
 │
 ├── holes/
 │   ├── kdtree.py             voxel / KDTree free-volume detection
@@ -111,9 +119,9 @@ Glass_Under_SEM/
 │   └── animate/              holes.py, defects.py, d2min.py, softness.py
 │
 ├── scripts/                  every entry point (see the table below)
-├── slurm/                    SLURM batch scripts: run_simulate.sh, run_pypty.sh, _gpu_guard.sh
+├── slurm/                    SLURM batch scripts: run_md.sh, run_simulate.sh, run_pypty.sh, _gpu_guard.sh
 │
-├── data/                     input trajectory            (gitignored)
+├── data/                     input trajectories          (gitignored)
 └── outputs/                  everything generated        (gitignored)
 ```
 
@@ -123,28 +131,29 @@ Glass_Under_SEM/
 
 | Script | What it does | Output folder |
 | --- | --- | --- |
-| `run_d2min.py` | g(r) cutoffs, D²min histogram and map | `outputs/run_d2min/` |
-| `run_defect_stats.py` | graph defect statistics | `outputs/run_defect_stats/` |
-| `build_projection_maps.py` | cumulative hole / defect maps (`.npy`) + plots + cross-correlation | `outputs/build_projection_maps/` |
-| `view_projection_maps.py` | re-plot the saved maps without recomputing | `outputs/view_projection_maps/` |
-| `run_d2min_defect_comparison.py` | D²min vs defect clusters (plot + overlay animation) | `outputs/run_d2min_defect_comparison/` |
-| `run_d2min_hole_comparison.py` | D²min vs distance to holes (plot + overlay animation) | `outputs/run_d2min_hole_comparison/` |
-| `run_soft_mode_tls_pipeline.py` | soft modes (3D and per z-slice), TLS detection (two methods), soft vs TLS vs D²min, per-element statistics, soft atoms as sources of D²min, plots and animations | `outputs/run_soft_mode_tls_pipeline/` |
-| `run_pca_reliability.py` | split-half reliability of the PCA behind the soft modes: eigenvalues and softness map (see [5.1](#51-how-far-can-the-pca-be-trusted)) | `outputs/run_pca_reliability/` |
-| `run_pca_convergence.py` | autocorrelation of the PCA mode amplitudes, effective sample size, convergence of the PCA with the number of frames (see [5.2](#52-autocorrelation-effective-sample-size-and-convergence)) | `outputs/run_pca_convergence/` |
-| `run_local_pca.py` | moving-window (local) PCA next to the full-system PCA, with a shifted-column null (see [5.3](#53-local-moving-window-pca)) | `outputs/run_local_pca/` |
+| `generate_md.py` | LAMMPS melt-quench MD of `MD_DATASET` (`MD_*` in `config.py`); the final dump goes to `data/` | `outputs/generate_md_<tag>/` (input, log, raw dump) + the dump in `data/` |
+| `run_d2min.py` | g(r) cutoffs, D²min histogram and map | `outputs/run_d2min_<tag>/` |
+| `run_defect_stats.py` | graph defect statistics | `outputs/run_defect_stats_<tag>/` |
+| `build_projection_maps.py` | cumulative hole / defect maps (`.npy`) + plots + cross-correlation | `outputs/build_projection_maps_<tag>/` |
+| `view_projection_maps.py` | re-plot the saved maps without recomputing | `outputs/view_projection_maps_<tag>/` |
+| `run_d2min_defect_comparison.py` | D²min vs defect clusters (plot + overlay animation) | `outputs/run_d2min_defect_comparison_<tag>/` |
+| `run_d2min_hole_comparison.py` | D²min vs distance to holes (plot + overlay animation) | `outputs/run_d2min_hole_comparison_<tag>/` |
+| `run_soft_mode_tls_pipeline.py` | soft modes (3D and per z-slice), TLS detection (two methods), soft vs TLS vs D²min, per-element statistics, soft atoms as sources of D²min, plots and animations | `outputs/run_soft_mode_tls_pipeline_<tag>/` |
+| `run_pca_reliability.py` | split-half reliability of the PCA behind the soft modes: eigenvalues and softness map (see [5.1](#51-how-far-can-the-pca-be-trusted)) | `outputs/run_pca_reliability_<tag>/` |
+| `run_pca_convergence.py` | autocorrelation of the PCA mode amplitudes, effective sample size, convergence of the PCA with the number of frames (see [5.2](#52-autocorrelation-effective-sample-size-and-convergence)) | `outputs/run_pca_convergence_<tag>/` |
+| `run_local_pca.py` | moving-window (local) PCA next to the full-system PCA, with a shifted-column null (see [5.3](#53-local-moving-window-pca)) | `outputs/run_local_pca_<tag>/` |
 | `test_pca_temporal_and_local.py` | synthetic-data checks of the two modules above (no trajectory needed) | — |
-| `run_soft_tls_dmin_comparison.py` | soft spots vs TLS vs D²min | `outputs/run_soft_tls_dmin_comparison/` |
-| `build_holes_defects_animations.py` | hole (KDTree, FFT) and defect-cluster animations | `outputs/build_holes_defects_animations/` |
-| `build_d2min_animations.py` | 2D / 3D D²min animations | `outputs/build_d2min_animations/` |
-| `simulate_4dstem.py` | 4D-STEM simulation + virtual BF/DF images | `outputs/simulate_4dstem/` (`4d_stem.zarr`) |
-| `pypty_setup.py` | zarr → `.h5` for pypty (`glass_sem_env`) | `outputs/pypty_setup/` |
-| `pypty_reconstruct.py` | iterative reconstruction (`pypty` env), resumable | `outputs/pypty_reconstruct/` |
-| `pypty_comparison.py` | reconstruction vs ground truth | `outputs/pypty_comparison/` |
-| `train_gnn.py` | GNN displacement prediction | `outputs/train_gnn/` |
-| `analyze_mass_dependence.py`, `explore_modes_from_covariance.py` | numerical checks of soft-mode theory | `outputs/<script_name>/` |
-| `demo_holes_kdtree.py`, `demo_holes_fft.py`, `demo_graph_build.py`, `demo_soft_modes.py`, `demo_tls_detection.py` | quick demos of one library module | `outputs/<script_name>/` |
-| `param_sweep.sh` | sweep of 4D-STEM simulation parameters | `outputs/param_sweep/` |
+| `run_soft_tls_dmin_comparison.py` | soft spots vs TLS vs D²min | `outputs/run_soft_tls_dmin_comparison_<tag>/` |
+| `build_holes_defects_animations.py` | hole (KDTree, FFT) and defect-cluster animations | `outputs/build_holes_defects_animations_<tag>/` |
+| `build_d2min_animations.py` | 2D / 3D D²min animations | `outputs/build_d2min_animations_<tag>/` |
+| `simulate_4dstem.py` | 4D-STEM simulation + virtual BF/DF images | `outputs/simulate_4dstem_<tag>/` (`4d_stem.zarr`) |
+| `pypty_setup.py` | zarr → `.h5` for pypty (`glass_sem_env`) | `outputs/pypty_setup_<tag>/` |
+| `pypty_reconstruct.py` | iterative reconstruction (`pypty` env), resumable | `outputs/pypty_reconstruct_<tag>/` |
+| `pypty_comparison.py` | reconstruction vs ground truth | `outputs/pypty_comparison_<tag>/` |
+| `train_gnn.py` | GNN displacement prediction | `outputs/train_gnn_<tag>/` |
+| `analyze_mass_dependence.py`, `explore_modes_from_covariance.py` | numerical checks of soft-mode theory | `outputs/<script_name>_<tag>/` |
+| `demo_holes_kdtree.py`, `demo_holes_fft.py`, `demo_graph_build.py`, `demo_soft_modes.py`, `demo_tls_detection.py` | quick demos of one library module | `outputs/<script_name>_<tag>/` |
+| `param_sweep.sh` | sweep of 4D-STEM simulation parameters | `outputs/param_sweep_<tag>/` |
 | `run_pipeline.sh` | runs the main stages in order | one folder per stage |
 
 All scripts are run from anywhere inside the project, e.g. `python scripts/run_defect_stats.py`.
@@ -167,7 +176,7 @@ All scripts are run from anywhere inside the project, e.g. `python scripts/run_d
 
 ### 4. Projection maps and cross-correlation
 
-`python scripts/build_projection_maps.py` integrates holes and defect clusters over the trajectory, projects them on the xy plane, saves them (`outputs/build_projection_maps/cumulative_*_map.npy`) and cross-correlates them. `scripts/view_projection_maps.py` reloads the saved maps. The abTEM virtual-detector image from step 5 is compared with the same maps by `analysis.projection_maps.compare_abtem_to_projection_maps`.
+`python scripts/build_projection_maps.py` integrates holes and defect clusters over the trajectory, projects them on the xy plane, saves them (`outputs/build_projection_maps_<tag>/cumulative_*_map.npy`) and cross-correlates them. `scripts/view_projection_maps.py` reloads the saved maps. The abTEM virtual-detector image from step 5 is compared with the same maps by `analysis.projection_maps.compare_abtem_to_projection_maps`.
 
 ### 5. Soft modes and TLS
 
@@ -180,7 +189,7 @@ All scripts are run from anywhere inside the project, e.g. `python scripts/run_d
 
 `python scripts/run_soft_mode_tls_pipeline.py` runs everything below; the thresholds are in `config.py`.
 
-| Stage | Main files in `outputs/run_soft_mode_tls_pipeline/` |
+| Stage | Main files in `outputs/run_soft_mode_tls_pipeline_<tag>/` |
 | --- | --- |
 | 1. 3D soft modes | `participation_spectrum_3d.png`, `participation_npart_3d.png` (n_part = PR·N of every full-system mode against mode index, with the shifted-column null `PCA_PARTICIPATION_N_NULL`; out of N atoms, not comparable with the local n_part out of n), `participation_per_mode_<element>.png`, `softness_map_3d_flat.png`, `softness_map_3d_pr_weighted.png` |
 | 2. 2D per z-slice | `softness_map_2d_overview.png`, `softness_map_2d_overview_pr_weighted.png` |
@@ -198,7 +207,7 @@ The covariance matrix has 3N = 20250 rows but is estimated from about 100 frames
 1. **Eigenvalues.** Find the modes on one half, project the frames of the other half on them, and compare the mean squared amplitude there (the *held-out variance*) with the eigenvalue found on the first half. Their ratio, the *retained fraction*, is about 1 for a real mode and about T_half/3N for fitted noise. Chance level per mode: the same procedure on data in which every coordinate is shifted in time by its own random amount (independent coordinates, same variance and autocorrelation each).
 2. **Softness map.** The whole soft-mode analysis is run on each half; the two per-atom softness maps are compared by Spearman rank correlation and by the overlap of their softest 5 % of atoms, against the same null and against the plain per-atom mean-square-displacement map (no PCA).
 
-The definitions, the null model and the interpretation are written out in the header of `analysis/soft_modes/pca_reliability.py`. Both tests print a summary table and write `pca_reliability.png` and `softness_reproducibility.png` to `outputs/run_pca_reliability/`; they take about a minute for 6750 atoms and 101 frames.
+The definitions, the null model and the interpretation are written out in the header of `analysis/soft_modes/pca_reliability.py`. Both tests print a summary table and write `pca_reliability.png` and `softness_reproducibility.png` to `outputs/run_pca_reliability_<tag>/`; they take about a minute for 6750 atoms and 101 frames.
 
 #### 5.2 Autocorrelation, effective sample size and convergence
 
@@ -237,29 +246,29 @@ python scripts/simulate_4dstem.py          # locally (memory heavy, see the WSL2
 sbatch slurm/run_simulate.sh               # on the cluster
 ```
 
-abTEM `GridScan` with a `PixelatedDetector`; the dataset is saved as `outputs/simulate_4dstem/4d_stem.zarr`. To look at an existing dataset without rerunning:
+abTEM `GridScan` with a `PixelatedDetector`; the dataset is saved as `outputs/simulate_4dstem_<tag>/4d_stem.zarr`. To look at an existing dataset without rerunning:
 
 ```python
 import abtem
 from visualization.plot import plot_average_diffraction
 
-dp = abtem.from_zarr("outputs/simulate_4dstem/4d_stem.zarr")
-plot_average_diffraction(dp, blocked=True)      # saved to outputs/<your script>/ by default
+dp = abtem.from_zarr("outputs/simulate_4dstem_zr50cu50_sim/4d_stem.zarr")   # <tag> of the dataset
+plot_average_diffraction(dp, blocked=True)      # saved to outputs/<your script>_<tag>/ by default
 ```
 
 ### 7. Ptychographic reconstruction
 
 ```text
-outputs/simulate_4dstem/4d_stem.zarr
+outputs/simulate_4dstem_<tag>/4d_stem.zarr
         │  scripts/pypty_setup.py        (glass_sem_env)
         ▼
-outputs/pypty_setup/4d_stem.h5 + scan_metadata.json
+outputs/pypty_setup_<tag>/4d_stem.h5 + scan_metadata.json
         │  scripts/pypty_reconstruct.py  (pypty env)
         ▼
-outputs/pypty_reconstruct/   (co.npy object, cp.npy probe, cg.npy positions, loss.csv, …)
+outputs/pypty_reconstruct_<tag>/   (co.npy object, cp.npy probe, cg.npy positions, loss.csv, …)
         │  scripts/pypty_comparison.py   (glass_sem_env)
         ▼
-outputs/pypty_comparison/    (comparison with the MD ground truth)
+outputs/pypty_comparison_<tag>/    (comparison with the MD ground truth)
 ```
 
 Both pypty scripts import only `config`, so they run in the `pypty` env without the editable install. The reconstruction writes a checkpoint every epoch; if the job is killed or hits its time limit, run it again and it resumes from the last saved epoch.
@@ -268,14 +277,14 @@ Both pypty scripts import only `config`, so they run in the `pypty` env without 
 
 ## Outputs
 
-* Every script writes into `outputs/<script_name>/` (the name of the script file without extension) and nowhere else. The folder is created on demand and removed again when empty.
-* Code that is not a script (`python -c …`, `python -`, a REPL, a notebook) writes to `outputs/miscellaneous/`.
-* A script reads the results of earlier stages from *their* folders (for example `pypty_setup.py` reads `outputs/simulate_4dstem/4d_stem.zarr`).
+* Every script writes into `outputs/<script_name>_<tag>/` (the name of the script file without extension, then the name of the dataset it works on, `config.py`) and nowhere else. The folder is created on demand and removed again when empty. `scripts/generate_md.py` uses the dataset `MD_DATASET`, not `ACTIVE_DATASET`.
+* Code that is not a script (`python -c …`, `python -`, a REPL, a notebook) writes to `outputs/miscellaneous_<tag>/`.
+* A script reads the results of earlier stages from *their* folders of the same dataset (for example `pypty_setup.py` reads `outputs/simulate_4dstem_<tag>/4d_stem.zarr`, built with `config.output_folder()`).
 * Shell scripts that feed Python through a heredoc (such as `param_sweep.sh`) pick their folder with `export GLASS_OUTPUT_NAME=<name>`.
 * Plot functions default to `save_path=None`, which means "`<OUTPUT_DIR>/<default file name>`". Pass `save_path=` to write somewhere else.
-* `outputs/miscellaneous/` is also the place for old results worth keeping that belong to no script. Any other folder under `outputs/` that does not match a file in `scripts/` is stale and can be deleted.
+* `outputs/miscellaneous_<tag>/` is also the place for old results worth keeping that belong to no script. Any other folder under `outputs/` that is not `<script name>_<tag>` of a file in `scripts/` is stale and can be deleted.
 
-To add a new analysis: put the computation in the appropriate package, the plotting in `visualization/plot.py`, and write a small entry point `scripts/<name>.py`. Its results will appear in `outputs/<name>/` automatically.
+To add a new analysis: put the computation in the appropriate package, the plotting in `visualization/plot.py`, and write a small entry point `scripts/<name>.py`. Its results will appear in `outputs/<name>_<tag>/` automatically.
 
 ---
 
@@ -284,6 +293,7 @@ To add a new analysis: put the computation in the appropriate package, the plott
 Long calculations go through SLURM, not a foreground SSH session. **Submit from the project root** (the scripts source `slurm/_gpu_guard.sh` relative to it).
 
 ```bash
+sbatch slurm/run_md.sh                                     # melt-quench MD (writes the dump to data/)
 sbatch slurm/run_simulate.sh                               # 4D-STEM simulation
 sbatch --dependency=afterok:<SIMULATE_JOBID> slurm/run_pypty.sh   # pypty setup + reconstruction
 squeue -u $USER
@@ -312,7 +322,7 @@ then run `wsl --shutdown` from PowerShell.
 ## Physical assumptions
 
 * **Cell size.** The MD cell is about 49 × 49 × 49 Å (≈ 5 nm), much thinner than a TEM lamella, so the simulated diffuse scattering is weak. The diffraction workflow can repeat the cell along `z` (`atoms.repeat((1, 1, 4))`), which assumes periodicity.
-* **Atomic radii.** Zr = 1.60 Å, Cu = 1.28 Å (`R_ZR`, `R_CU` in `config.py`) – change them there only.
+* **Atomic radii.** Not set by hand: `cutoffs.py` fits one radius per element (least squares, `utils.fit_species_radii`) to the first peaks of all partial g(r)s of the active dataset, r_i + r_j ≈ d_ij (like pairs: 2 r_i = d_ii). They are the sphere radii of the FFT hole finder (`cutoffs.TYPE_TO_RADIUS`, keyed by LAMMPS type) and change with the dataset's g(r) and `peak_search_window`. For an oxide the like-pair peaks (e.g. Al–Al) are cation–cation distances, so the fitted radii need not match ionic radii.
 * **Free volume vs defects.** They are treated as related but distinct descriptors; the cross-correlation analysis is meant to measure their relation, not assume it.
 * **Few frames for the PCA.** The soft-mode analysis decomposes a 3N × 3N covariance matrix estimated from about 100 frames, so only the strongest modes can be resolved and the eigenvalues are inflated. Run `scripts/run_pca_reliability.py` before interpreting individual modes or the softness map.
 * **Unwrapped positions.** The LAMMPS dumps re-wrap coordinates into the cell every frame; displacement-based analyses (D²min, soft modes) use `utils.unwrap_positions` to remove periodic jumps.

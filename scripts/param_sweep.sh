@@ -13,7 +13,7 @@
 # =============================================================
 
 PYTHON=/home/suban/miniconda3/envs/glass_sem_env/bin/python
-OUTDIR="outputs/param_sweep"
+OUTDIR="outputs/$($PYTHON -c "from config import output_folder; print(output_folder('param_sweep'))")"   # outputs/param_sweep_<tag>
 export GLASS_OUTPUT_NAME=param_sweep      # the python heredocs below have no script name of their own
 
 # Save original config and restore on exit (even on Ctrl+C)

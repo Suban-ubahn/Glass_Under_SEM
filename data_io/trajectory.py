@@ -30,7 +30,7 @@ def load_trajectory(file_path=TRAJECTORY_FILE, index="::1"):
     -------
     list of ase.Atoms
         One Atoms object per timestep, with REAL atomic numbers set
-        (Zr=40, Cu=29 — see config.TYPE_TO_Z), not the raw LAMMPS
+        (see config.TYPE_TO_Z of the active dataset), not the raw LAMMPS
         dump reader's default.
 
     Note

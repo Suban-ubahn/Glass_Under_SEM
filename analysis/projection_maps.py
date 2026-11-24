@@ -12,6 +12,8 @@
 # =============================================================
 
 
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -25,8 +27,12 @@ from graph.defects import (
     get_connected_components,   
 )
 from visualization.plot import plot_map, plot_cross_correlation
-from config import VOXEL_EDGE, DEFECT_THRESHOLD
+from config import VOXEL_EDGE, DEFECT_THRESHOLD, output_folder
 from cutoffs import GRAPH_CUTOFF_DICT
+
+# Cumulative maps saved by scripts/build_projection_maps.py (folder of the active dataset)
+HOLE_MAP_PATH    = os.path.join("outputs", output_folder("build_projection_maps"), "cumulative_hole_map.npy")
+CLUSTER_MAP_PATH = os.path.join("outputs", output_folder("build_projection_maps"), "cumulative_cluster_map.npy")
 
 
 # ------------------------------------------------------------
@@ -139,9 +145,9 @@ def compute_cross_correlation(holes=None, clusters=None):
     from scipy.signal import fftconvolve
 
     if holes is None:
-        holes    = np.load("outputs/build_projection_maps/cumulative_hole_map.npy")
+        holes    = np.load(HOLE_MAP_PATH)
     if clusters is None:
-        clusters = np.load("outputs/build_projection_maps/cumulative_cluster_map.npy")
+        clusters = np.load(CLUSTER_MAP_PATH)
 
     def normalise(m):
         m = m - m.mean()
@@ -173,8 +179,8 @@ def resample_to_match(source, target):
 
 def compare_abtem_to_projection_maps(
     abtem_image,
-    holes_path    = "outputs/build_projection_maps/cumulative_hole_map.npy",
-    clusters_path = "outputs/build_projection_maps/cumulative_cluster_map.npy",
+    holes_path    = HOLE_MAP_PATH,
+    clusters_path = CLUSTER_MAP_PATH,
 ):
     """
     Cross-correlate the abtem virtual detector heatmap with the

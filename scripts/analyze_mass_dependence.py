@@ -24,6 +24,7 @@ atoms0 = trajectory[0]
 elements = np.array(atoms0.get_chemical_symbols())
 masses = atoms0.get_masses()
 species = list(np.unique(elements))
+species_by_mass = sorted(species, key=lambda el: masses[elements == el][0])   # lightest first; the ratios below (binary systems) are light / heavy
 
 positions = np.array([a.positions for a in trajectory])
 box = np.array([a.cell.array.diagonal() for a in trajectory])
@@ -41,7 +42,7 @@ step = (np.diff(unwrapped, axis=0) ** 2).sum(-1).mean(0)      # <|du_i|^2> per f
 i_idx, j_idx = neighbor_list("ij", atoms0, CUTOFF_DICT)
 cn = np.bincount(i_idx, minlength=len(atoms0))
 
-print("\n-- 1/2. mass vs. statics/dynamics (last row = Cu/Zr ratio) --")
+print("\n-- 1/2. mass vs. statics/dynamics (last row = light/heavy ratio, binary systems) --")
 quantities = {
     "mass": masses,
     "du2 [1e-3]": step * 1e3,
@@ -50,17 +51,20 @@ quantities = {
     "u2*CN [1e-2]": msd * cn * 1e2,
 }
 table = {el: {name: by_el(x)[el] for name, x in quantities.items()} for el in species}
-if species == ["Cu", "Zr"]:
-    table["Cu/Zr"] = {name: table["Cu"][name] / table["Zr"][name] for name in quantities}
+if len(species) == 2:
+    light, heavy = species_by_mass
+    table[f"{light}/{heavy}"] = {name: table[light][name] / table[heavy][name] for name in quantities}
 print_element_table(table)
 print("  (du2 = <|du|^2> per frame, u2 = <|u|^2> in A^2, CN = coordination number)")
 
-print("\n-- 3. MSD ratio Cu/Zr vs. window length --")
-for T in (10, 20, 40, 70, len(trajectory)):
-    uT, _ = compute_displacements(unwrapped[:T])
-    m = (uT ** 2).sum(-1).mean(0)
-    print(f"  first {T:3d} frames: Cu/Zr = {m[elements=='Cu'].mean() / m[elements=='Zr'].mean():.2f}")
-print(f"  (m_Zr/m_Cu = {masses[elements=='Zr'][0] / masses[elements=='Cu'][0]:.2f})")
+if len(species) == 2:
+    light, heavy = species_by_mass
+    print(f"\n-- 3. MSD ratio {light}/{heavy} vs. window length --")
+    for T in (10, 20, 40, 70, len(trajectory)):
+        uT, _ = compute_displacements(unwrapped[:T])
+        m = (uT ** 2).sum(-1).mean(0)
+        print(f"  first {T:3d} frames: {light}/{heavy} = {m[elements==light].mean() / m[elements==heavy].mean():.2f}")
+    print(f"  (m_{heavy}/m_{light} = {masses[elements==heavy][0] / masses[elements==light][0]:.2f})")
 
 print("\n-- 4. variance carried by the softest modes --")
 lam = modes_from_displacements(u, masses=None, n_modes=100)["eigenvalues"]

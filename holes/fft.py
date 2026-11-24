@@ -14,7 +14,6 @@ from scipy.fft import fftn, ifftn
 from scipy.ndimage import gaussian_filter, maximum_filter
 
 from config import (
-    TYPE_TO_RADIUS,
     VOXEL_EDGE,
     GAUSSIAN_SIGMA_A,
     PEAK_THRESHOLD,
@@ -116,14 +115,22 @@ def fft_convolve(volume, kernel):
 # ------------------------------------------------------------
 
 def compute_Vcell(atoms, voxel_edge=VOXEL_EDGE,
-                  type_to_radius=TYPE_TO_RADIUS):
+                  type_to_radius=None):
     """
     Build the occupancy field by convolving each element's
     atom grid with its sphere kernel and summing.
 
+    type_to_radius : dict {LAMMPS type: radius (Å)}, optional
+        Default: cutoffs.TYPE_TO_RADIUS, the per-species radii fitted to the
+        first g(r) peaks of the trajectory (see cutoffs.py).
+
     Vcell[i,j,k] ≈ number of atom spheres overlapping voxel (i,j,k).
     Values > 0 → occupied; 0 → free space.
     """
+    if type_to_radius is None:
+        from cutoffs import TYPE_TO_RADIUS   # local import: cutoffs reads the trajectory on import
+        type_to_radius = TYPE_TO_RADIUS
+
     shape       = create_grid(atoms, voxel_edge).shape
     total_field = np.zeros(shape, dtype=np.float32)
 

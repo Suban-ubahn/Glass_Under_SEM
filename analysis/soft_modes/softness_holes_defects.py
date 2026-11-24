@@ -28,7 +28,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from config import (
-    VOXEL_EDGE, DEFECT_K, Z_ZR, Z_CU,
+    VOXEL_EDGE, DEFECT_K,
     SOFTNESS_HOLE_N_BINS, SOFTNESS_DEFECT_K_LEVELS,
 )
 from cutoffs import CUTOFF_DICT
@@ -92,10 +92,8 @@ def defect_groups_per_frame(trajectory, cutoff=CUTOFF_DICT, k=DEFECT_K, k_levels
         deg = compute_degrees(g).numpy()
         Zn = g.x.view(-1).numpy()
         degrees[t] = deg
-        for element in (Z_ZR, Z_CU):
+        for element in np.unique(Zn):
             m = Zn == element
-            if not m.any():
-                continue
             d = deg[m].astype(float)
             mean = d.mean()
             std = d.std(ddof=1) if m.sum() > 1 else 0.0

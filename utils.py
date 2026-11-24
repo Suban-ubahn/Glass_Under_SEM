@@ -3,9 +3,10 @@
 #
 # Shared infrastructure helpers (not physical constants — see config.py).
 #
-# Deliberately has NO dependency on config.py or data_io/trajectory.py
-# (both of which import config) — that keeps this module a "leaf" with
-# nothing importing it back, so config.py can safely import from here.
+# Deliberately has NO import-time dependency on config.py or data_io/trajectory.py
+# (both of which import config; a few functions import config lazily, inside the
+# function) — that keeps this module a "leaf" with nothing importing it back, so
+# config.py can safely import from here.
 # =============================================================
 
 import atexit
@@ -91,8 +92,9 @@ def compute_displacements(positions, reference=None):
 
 def _default_output_name():
     """
-    Folder name under outputs/ for the program that is running: the stem of the
-    script (python scripts/run_d2min.py -> "run_d2min").
+    Name of the program that is running, from which the folder under outputs/ is
+    made (get_output_dir): the stem of the script (python scripts/run_d2min.py ->
+    "run_d2min").
 
     Anything that is not a .py script -- `python -c ...`, `python -` (heredoc),
     a REPL, a Jupyter kernel -- has no script name, so its files go to
@@ -117,16 +119,24 @@ def _remove_if_empty(path):
         pass
 
 
-def get_output_dir(name=None):
+def get_output_dir(name=None, dataset=None):
     """
-    Return outputs/<name>/, creating it if it doesn't exist. Convention: every
-    script writes only into outputs/<its own file name>/ -- see
-    _default_output_name(). Folders that stay empty are removed at exit, so
-    merely importing a module never leaves an empty folder behind.
+    Return outputs/<name>_<dataset>/, creating it if it doesn't exist.
+    Convention: every script writes only into outputs/<its own file name>_<dataset>/,
+    where <dataset> is the name (key in config.DATASETS) of the dataset it works on (config.py,
+    config.output_folder) -- see _default_output_name(). Folders that stay empty
+    are removed at exit, so merely importing a module never leaves an empty
+    folder behind.
+
+    name    : program name (default: the running script)
+    dataset : key of config.DATASETS to use (default: the active dataset);
+              scripts.generate_md.py passes MD_DATASET, because it works on another
+              dataset than the analysis scripts
     """
+    from config import output_folder   # local import: see the header of this module
     if name is None:
         name = _default_output_name()
-    path = os.path.join(OUTPUTS_ROOT, name)
+    path = os.path.join(OUTPUTS_ROOT, output_folder(name, dataset))
     os.makedirs(path, exist_ok=True)
     if path not in _made_output_dirs:
         _made_output_dirs.add(path)
@@ -231,8 +241,8 @@ def find_cutoff_from_gr(r, g_r, peak_search_window=(2.0, 4.0)):
 # =============================================================
 # Partial pair correlation g_ab(r) — species-resolved version of
 # the g(r) above. Used to derive a separate neighbor cutoff (and
-# separate first-peak bond length) for each of the three pair
-# types in a binary system: A-A, A-B, B-B.
+# separate first-peak bond length) for every pair of species in the
+# dataset (A-A, A-B, B-B, ... for as many species as are present).
 # =============================================================
 
 def compute_partial_pair_correlation(atoms, z_i, z_j, r_max=8.0, dr=0.05):
@@ -287,7 +297,7 @@ def average_partial_pair_correlation(trajectory, z_i, z_j, r_max=8.0, dr=0.05, n
 
 # =============================================================
 # Cached, species-resolved cutoffs — one entry point for all
-# three pair types (A-A, A-B, B-B) of a binary system.
+# species pairs of the dataset.
 # =============================================================
 
 def _trajectory_fingerprint(path):
@@ -318,12 +328,12 @@ def _save_cache(cache_path, cache):
         json.dump(cache, f, indent=2)
 
 
-def get_cached_partial_cutoffs(trajectory_file, z_a, z_b, cache_path=None):
+def get_cached_partial_cutoffs(trajectory_file, type_to_z=None, peak_search_window=None, cache_path=None):
     """
-    Return g(r)-derived cutoffs AND first-peak distances for all
-    three pair types of a binary A/B system: (A,A), (A,B), (B,B).
-    Computed once per distinct trajectory file (and z_a/z_b choice)
-    and cached to disk:
+    Return g(r)-derived cutoffs AND first-peak distances for every
+    pair of species present in the trajectory (A-A, A-B, B-B, ...).
+    Computed once per distinct trajectory file (and type mapping /
+    peak search window) and cached to disk:
       - same trajectory again (new process, later run) -> instant.
       - a DIFFERENT trajectory file -> computed fresh, cached under
         its own entry; other simulations' cached values untouched.
@@ -333,40 +343,108 @@ def get_cached_partial_cutoffs(trajectory_file, z_a, z_b, cache_path=None):
     Parameters
     ----------
     trajectory_file : str
-    z_a, z_b : int — the two real atomic numbers present (e.g. 40, 29)
+    type_to_z : dict, optional — LAMMPS type -> atomic number
+        (default: config.TYPE_TO_Z)
+    peak_search_window : (float, float), optional — r-range (Å) in which the
+        first peak of each partial g(r) is searched
+        (default: config.CUTOFF_PEAK_SEARCH_WINDOW)
     cache_path : str, optional
 
     Returns
     -------
-    dict with keys "AA_cutoff", "AA_peak", "AB_cutoff", "AB_peak",
-    "BB_cutoff", "BB_peak" (all floats, Å). "AA"/"AB"/"BB" refer to
-    (z_a,z_a), (z_a,z_b), (z_b,z_b) respectively — the caller (config.py)
-    maps these onto ZrZr/ZrCu/CuCu.
+    dict with keys "cutoff" and "peak", each a dict {(z_i, z_j): float (Å)}
+    over all pairs of the species present with z_i <= z_j. "cutoff" is the
+    first minimum after the first peak, "peak" the first peak itself.
     """
+    if type_to_z is None or peak_search_window is None:
+        from config import TYPE_TO_Z, CUTOFF_PEAK_SEARCH_WINDOW  # local import: avoids a load-time cycle
+        type_to_z = TYPE_TO_Z if type_to_z is None else type_to_z
+        peak_search_window = CUTOFF_PEAK_SEARCH_WINDOW if peak_search_window is None else peak_search_window
+
     if cache_path is None:
         cache_path = _default_cache_path()
 
-    fingerprint = _trajectory_fingerprint(trajectory_file) + f":{z_a}:{z_b}"
+    types_key = ",".join(f"{t}={z}" for t, z in sorted(type_to_z.items()))
+    window_key = f"{peak_search_window[0]:g}-{peak_search_window[1]:g}"
+    fingerprint = _trajectory_fingerprint(trajectory_file) + f":{types_key}:{window_key}"
     cache = _load_cache(cache_path)
 
-    if fingerprint in cache:
-        return cache[fingerprint]
+    if fingerprint not in cache:
+        import ase.io
 
-    import ase.io
-    from config import TYPE_TO_Z  # local import: avoids a load-time cycle
+        trajectory = ase.io.read(trajectory_file, format="lammps-dump-text", index="::1")
+        for atoms in trajectory:
+            atoms.set_atomic_numbers([type_to_z[t] for t in atoms.arrays["type"]])
 
-    trajectory = ase.io.read(trajectory_file, format="lammps-dump-text", index="::1")
-    for atoms in trajectory:
-        atoms.set_atomic_numbers([TYPE_TO_Z[t] for t in atoms.arrays["type"]])
+        zs = sorted(set(type_to_z.values()))
+        entry = {}
+        for i, z_i in enumerate(zs):
+            for z_j in zs[i:]:
+                r, g_r = average_partial_pair_correlation(trajectory, z_i, z_j, r_max=5.0, n_frames=10)
+                cutoff, peak = find_cutoff_from_gr(r, g_r, peak_search_window)
+                entry[f"{z_i}-{z_j}"] = {"cutoff": cutoff, "peak": peak}
 
-    result = {}
-    for label, (zi, zj) in [("AA", (z_a, z_a)), ("AB", (z_a, z_b)), ("BB", (z_b, z_b))]:
-        r, g_r = average_partial_pair_correlation(trajectory, zi, zj, r_max=5.0, n_frames=10)
-        cutoff, peak = find_cutoff_from_gr(r, g_r)
-        result[f"{label}_cutoff"] = cutoff
-        result[f"{label}_peak"] = peak
+        cache[fingerprint] = entry
+        _save_cache(cache_path, cache)
 
-    cache[fingerprint] = result
-    _save_cache(cache_path, cache)
-
+    result = {"cutoff": {}, "peak": {}}
+    for key, vals in cache[fingerprint].items():
+        pair = tuple(int(z) for z in key.split("-"))
+        result["cutoff"][pair] = vals["cutoff"]
+        result["peak"][pair] = vals["peak"]
     return result
+
+
+# =============================================================
+# Per-species radii from the first g(r) peaks
+# =============================================================
+
+def fit_species_radii(peaks):
+    """
+    Per-species radius from the first-peak distances of the partial g(r)s.
+
+    For every species pair (i, j) the first peak d_ij of g_ij(r) is the
+    typical contact distance, modelled as r_i + r_j (like pairs: 2 r_i = d_ii).
+    All pairs together give an overdetermined linear system in the radii,
+    solved in the least-squares sense.
+
+    Parameters
+    ----------
+    peaks : dict {(z_i, z_j): float (Å)} — first-peak distance of every species
+        pair, e.g. the "peak" entry of get_cached_partial_cutoffs()
+
+    Returns
+    -------
+    dict {z: radius (Å)}
+    """
+    zs = sorted({z for pair in peaks for z in pair})
+    col = {z: k for k, z in enumerate(zs)}
+    A = np.zeros((len(peaks), len(zs)))
+    d = np.zeros(len(peaks))
+    for row, ((z_i, z_j), dist) in enumerate(peaks.items()):
+        A[row, col[z_i]] += 1.0
+        A[row, col[z_j]] += 1.0
+        d[row] = dist
+    r, *_ = np.linalg.lstsq(A, d, rcond=None)
+    if np.any(r <= 0):
+        raise ValueError(
+            f"Fitted species radii are not all positive ({ {z: round(float(x), 3) for z, x in zip(zs, r)} }); "
+            f"check the first-peak distances {peaks} and the peak_search_window."
+        )
+    return {z: float(r[col[z]]) for z in zs}
+
+
+# =============================================================
+# Composition label
+# =============================================================
+
+def atomic_percent_formula(atoms):
+    """
+    Formula in atomic percent, highest atomic number first, e.g. 'Zr50Cu50' or 'Al40O60'.
+    Requires REAL atomic numbers in atoms (anything loaded via data_io.trajectory.load_trajectory()).
+    """
+    from ase.data import chemical_symbols
+
+    z, counts = np.unique(atoms.get_atomic_numbers(), return_counts=True)
+    order = np.argsort(-z)
+    return "".join(f"{chemical_symbols[z[i]]}{100.0 * counts[i] / len(atoms):g}" for i in order)

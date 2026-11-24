@@ -24,7 +24,6 @@ import os
 from ase import Atoms
 
 from config import (
-    TYPE_TO_RADIUS,
     BEAM_ENERGY_KV,
     MAX_ANGLE_MRAD,
     GPTS,
@@ -96,7 +95,7 @@ def simulate_4d_stem(atoms, output_file=None):
     atoms       : ase.Atoms — the structure to simulate (already
                   type-corrected, i.e. real atomic numbers)
     output_file : str — path for the .zarr output (default: 4d_stem.zarr in
-                  outputs/<running script>/, e.g. outputs/simulate_4dstem/)
+                  outputs/<running script>_<tag>/, e.g. outputs/simulate_4dstem_zr50cu50_sim/)
 
     Returns
     -------

@@ -13,7 +13,7 @@
 # independent samples) are in the header of analysis/soft_modes/pca_convergence.py.
 # All parameters are in config.py (PCA_ACF_*, PCA_CONV_*).
 #
-# Outputs go to outputs/run_pca_convergence/ (see utils.get_output_dir()).
+# Outputs go to outputs/run_pca_convergence_<tag>/ (see utils.get_output_dir()).
 # =============================================================
 
 import os

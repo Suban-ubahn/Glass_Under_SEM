@@ -10,7 +10,7 @@
 # null model and how to read the output are in the header of
 # analysis/soft_modes/pca_reliability.py.
 #
-# Outputs go to outputs/run_pca_reliability/ (see utils.get_output_dir()).
+# Outputs go to outputs/run_pca_reliability_<tag>/ (see utils.get_output_dir()).
 # =============================================================
 
 import os

@@ -567,23 +567,30 @@ def plot_d2min_map_3d(atoms_ref, d2min, save_path=None,
 def plot_d2min_defect_comparison(stats, save_path=None):
     """
     Mean D^2_min for defect vs non-defect atoms over the trajectory
-    (relative to frame 0). If the defect line consistently sits above
+    (relative to the mean structure). If the defect line consistently sits above
     the non-defect line, defects are tracking — and plausibly driving —
     the non-affine dynamics; if the two lines stay close, d2min is
     more diffuse and not concentrated at defect sites.
     """
     if save_path is None:
         save_path = os.path.join(OUTPUT_DIR, "d2min_defect_comparison.png")
-    fig, ax = plt.subplots(figsize=(7, 5))
+    fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
     frames = stats["frame_indices"]
-    ax.plot(frames, stats["mean_defect"], label="Defect atoms", color="crimson")
-    ax.plot(frames, stats["mean_nondefect"], label="Non-defect atoms", color="steelblue")
-
-    ax.set_xlabel("Frame")
-    ax.set_ylabel("Mean D²_min (Å²)")
-    ax.set_title("D²_min by defect membership, relative to frame 0")
-    ax.legend()
+    panels = [
+        ("mean_defect", "mean_nondefect", "Mean D²_min (Å²)",
+         "D²_min by defect membership, relative to the mean structure"),
+        ("mean_defect_excess", "mean_nondefect_excess", "Mean excess D²_min (Å²)",
+         "excess (D²_min - thermal baseline) by defect membership, relative to the mean structure"),
+    ]
+    for a, (key_defect, key_nondefect, ylabel, title) in zip(ax, panels):
+        a.plot(frames, stats[key_defect], label="Defect atoms", color="crimson")
+        a.plot(frames, stats[key_nondefect], label="Non-defect atoms", color="steelblue")
+        a.set_xlabel("Frame")
+        a.set_ylabel(ylabel)
+        a.set_title(title, fontsize=10)
+        a.legend()
+    fig.tight_layout()
 
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=300)
@@ -638,11 +645,10 @@ def plot_d2min_hole_distance(stats, save_path=None, smooth=False, smooth_window=
     if save_path is None:
         save_path = os.path.join(OUTPUT_DIR, "d2min_hole_distance.png")
  
-    fig, ax = plt.subplots(figsize=(7, 5))
+    fig, ax = plt.subplots(1, 2, figsize=(14, 5))
  
     frames = stats["frame_indices"]
-    bin_means = stats["bin_means"]
-    n_bins = bin_means.shape[1]
+    n_bins = stats["bin_means"].shape[1]
     prefixes = ["Near", "Mid", "Far"] if n_bins == 3 else [f"Bin {b}" for b in range(n_bins)]
     mean_edges = np.nanmean(stats["bin_edges"], axis=0)  # shape (n_bins+1,), Å
     labels = [
@@ -651,16 +657,22 @@ def plot_d2min_hole_distance(stats, save_path=None, smooth=False, smooth_window=
     ]
     colors = cm.viridis(np.linspace(0, 0.85, n_bins))
  
-    for b in range(n_bins):
-        y = bin_means[:, b]
-        if smooth:
-            y = _smooth_series(y, window=smooth_window)
-        ax.plot(frames, y, label=labels[b], color=colors[b])
- 
-    ax.set_xlabel("Frame")
-    ax.set_ylabel("Mean D²_min (Å²)")
-    ax.set_title("D²_min by distance to nearest hole peak")
-    ax.legend()
+    panels = [
+        ("bin_means", "Mean D²_min (Å²)", "D²_min by distance to nearest hole peak"),
+        ("bin_means_excess", "Mean excess D²_min (Å²)",
+         "excess (D²_min - thermal baseline) by distance to nearest hole peak"),
+    ]
+    for a, (key, ylabel, title) in zip(ax, panels):
+        for b in range(n_bins):
+            y = stats[key][:, b]
+            if smooth:
+                y = _smooth_series(y, window=smooth_window)
+            a.plot(frames, y, label=labels[b], color=colors[b])
+        a.set_xlabel("Frame")
+        a.set_ylabel(ylabel)
+        a.set_title(title, fontsize=10)
+    ax[0].legend()
+    fig.tight_layout()
  
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path, dpi=300)
@@ -1249,19 +1261,20 @@ def plot_degree_by_element(graphs, max_frames=10,
     import matplotlib.pyplot as plt
     if save_path is None:
         save_path = os.path.join(OUTPUT_DIR, "degree_distribution_by_element.png")
-    deg_Zr, deg_Cu = [], []
+    from ase.data import chemical_symbols
+    elements = sorted({int(z) for g in graphs[:max_frames] for z in g.x.view(-1).unique()})
+    deg_by_element = {z: [] for z in elements}
     for g in graphs[:max_frames]:
         deg = compute_degrees(g)
         Z   = g.x.view(-1)
-        deg_Zr.append(deg[Z == 40].numpy())
-        deg_Cu.append(deg[Z == 29].numpy())
+        for z in elements:
+            deg_by_element[z].append(deg[Z == z].numpy())
 
-    deg_Zr = np.concatenate(deg_Zr)
-    deg_Cu = np.concatenate(deg_Cu)
+    deg_by_element = {chemical_symbols[z]: np.concatenate(d) for z, d in deg_by_element.items()}
 
     plt.figure()
-    plt.hist(deg_Zr, bins=40, alpha=0.6, label="Zr")
-    plt.hist(deg_Cu, bins=40, alpha=0.6, label="Cu")
+    for symbol, deg_el in deg_by_element.items():
+        plt.hist(deg_el, bins=40, alpha=0.6, label=symbol)
     plt.xlabel("Coordination number (degree)")
     plt.ylabel("Count")
     plt.legend()
@@ -1269,7 +1282,7 @@ def plot_degree_by_element(graphs, max_frames=10,
     plt.savefig(save_path, dpi=300)
     plt.show()
 
-    return deg_Zr, deg_Cu
+    return deg_by_element
 
 
 def plot_pca_reliability(res, eigenvalue_unit="amu·Å²", save_path=None):

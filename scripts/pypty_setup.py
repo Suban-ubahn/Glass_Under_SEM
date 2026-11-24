@@ -16,10 +16,12 @@ import numpy as np
 import abtem
 import h5py
 import json
-from config import BEAM_ENERGY_KV, CONVERGENCE_SEMIANGLE_MRAD, SAMPLING_FACTOR
+from config import BEAM_ENERGY_KV, CONVERGENCE_SEMIANGLE_MRAD, SAMPLING_FACTOR, TRAJECTORY_FILE, output_folder
+from data_io.trajectory import load_trajectory
+from utils import atomic_percent_formula
 
-OUT_DIR   = "outputs/pypty_setup"                      # everything this script writes
-ZARR_PATH = "outputs/simulate_4dstem/4d_stem.zarr"     # written by scripts/simulate_4dstem.py
+OUT_DIR   = f"outputs/{output_folder('pypty_setup')}"                         # everything this script writes
+ZARR_PATH = f"outputs/{output_folder('simulate_4dstem')}/4d_stem.zarr"        # written by scripts/simulate_4dstem.py
 H5_PATH   = f"{OUT_DIR}/4d_stem.h5"
 META_PATH = f"{OUT_DIR}/scan_metadata.json"
 
@@ -51,12 +53,20 @@ if __name__ == "__main__":
     scan_step_A = float(SAMPLING_FACTOR * probe.aperture.nyquist_sampling)
     print(f"Scan step: {scan_step_A:.4f} Å")
 
+    # Sample thickness and composition come from the structure the 4D-STEM data was simulated from.
+    reference = load_trajectory(TRAJECTORY_FILE, index="0")
+    total_thickness = float(reference.cell.array[2, 2])
+    chemical_formula = atomic_percent_formula(reference)
+    print(f"Sample: {chemical_formula}, thickness {total_thickness:.3f} Å")
+
     metadata = {
-        "scan_x"      : scan_x,
-        "scan_y"      : scan_y,
-        "scan_step_A" : scan_step_A,
-        "kx"          : kx,
-        "ky"          : ky,
+        "scan_x"           : scan_x,
+        "scan_y"           : scan_y,
+        "scan_step_A"      : scan_step_A,
+        "kx"               : kx,
+        "ky"               : ky,
+        "total_thickness"  : total_thickness,
+        "chemical_formula" : chemical_formula,
     }
     with open(META_PATH, "w") as f:
         json.dump(metadata, f, indent=2)

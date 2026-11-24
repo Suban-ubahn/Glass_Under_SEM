@@ -35,7 +35,7 @@ if __name__ == "__main__":
     # a KeyError (TYPE_TO_Z has no entry for 40 or 29, only 1 and 2).
 
     # resolution_test(avg_atoms)
-    zarr_path = os.path.join(OUTPUT_DIR, "4d_stem.zarr")          # outputs/simulate_4dstem/4d_stem.zarr
+    zarr_path = os.path.join(OUTPUT_DIR, "4d_stem.zarr")          # outputs/simulate_4dstem_<tag>/4d_stem.zarr
     diffraction_patterns = simulate_4d_stem(avg_atoms, output_file=zarr_path)
     diffraction_patterns = abtem.from_zarr(zarr_path)
     

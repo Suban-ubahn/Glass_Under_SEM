@@ -71,7 +71,7 @@ def compute_degree_deficit(degrees, Z):
     Negative → over-coordinated.
     """
     deficit = torch.zeros_like(degrees, dtype=torch.float)
-    for element in [40, 29]:   # Zr, Cu
+    for element in torch.unique(Z).tolist():   # every element present
         mask    = (Z == element)
         mean    = degrees[mask].float().mean()
         deficit[mask] = mean - degrees[mask].float()
@@ -101,7 +101,7 @@ def classify_defects_from_deficit(deficit, degrees, Z,
     defects = deficit > threshold
 
     if print_stats:
-        for element in [40, 29]:
+        for element in torch.unique(Z).tolist():
             mask = (Z == element)
             mean = degrees[mask].float().mean()
             std  = degrees[mask].float().std()
@@ -129,7 +129,7 @@ def classify_defects_statistical(degrees, Z, k=1.0):
     """
     defects = torch.zeros_like(degrees, dtype=torch.bool)
 
-    for element in [40, 29]:
+    for element in torch.unique(Z).tolist():
         mask      = (Z == element)
         deg_elem  = degrees[mask].float()
         mean, std = deg_elem.mean(), deg_elem.std()

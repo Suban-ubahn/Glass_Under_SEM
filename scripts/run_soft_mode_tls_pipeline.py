@@ -12,7 +12,7 @@
 #   5. Element statistics, distributions, animations
 #   6. Are soft atoms sources of plastic activity? (where + when)
 #
-# Outputs go to outputs/run_soft_mode_tls_pipeline/ (see
+# Outputs go to outputs/run_soft_mode_tls_pipeline_<tag>/ (see
 # utils.get_output_dir(), same convention as the rest of the project,
 # e.g. scripts/build_d2min_animations.py).
 # =============================================================
@@ -431,7 +431,8 @@ if __name__ == "__main__":
     )
 
     print("\nComputing D^2_min(0 -> t) for the temporal test...")
-    d2min_from_first, _ = d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF_DICT)
+    d2min_from_first, _ = d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF_DICT,
+                                           reference="first")
     when = soft_source_analysis(
         trajectory, modes_3d["softness"], d2min_from_first, cutoff=CUTOFF_DICT,
         soft_frac=D2MIN_TOP_FRACTION, reference="first", spatial=False,

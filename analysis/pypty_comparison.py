@@ -9,8 +9,9 @@
 #   conda activate glass_sem_env
 #   python analysis/pypty_comparison.py
 #
-# Requires: outputs/pypty_reconstruct/{co.npy,cp.npy,params.pkl}   (from scripts/pypty_reconstruct.py)
-#           outputs/pypty_setup/scan_metadata.json                  (from scripts/pypty_setup.py)
+# Requires: outputs/pypty_reconstruct_<tag>/{co.npy,cp.npy,params.pkl}   (from scripts/pypty_reconstruct.py)
+#           outputs/pypty_setup_<tag>/scan_metadata.json                  (from scripts/pypty_setup.py)
+# (<tag> = name of the active dataset, config.ACTIVE_DATASET)
 # =============================================================
 
 import os
@@ -21,14 +22,14 @@ import abtem
 from scipy.signal import correlate2d
 from scipy.stats import pearsonr
 
-from config import TRAJECTORY_FILE
+from config import TRAJECTORY_FILE, output_folder
 from data_io.trajectory import load_trajectory
 from diffraction.simulate import compute_average_structure
 from visualization.plot import plot_pypty_reconstruction, plot_pypty_vs_ground_truth, plot_cross_correlation
 from utils import get_output_dir
 OUTPUT_DIR = get_output_dir()
 
-CHECKPOINT_DIR = "outputs/pypty_reconstruct"
+CHECKPOINT_DIR = f"outputs/{output_folder('pypty_reconstruct')}"
 
 
 def load_reconstruction():

@@ -20,7 +20,7 @@ import os
 import numpy as np
 from utils import get_output_dir
 
-OUTPUT_DIR = get_output_dir()      # outputs/build_projection_maps/
+OUTPUT_DIR = get_output_dir()      # outputs/build_projection_maps_<tag>/
 
 if __name__ == "__main__":
     print("Loading trajectory...")

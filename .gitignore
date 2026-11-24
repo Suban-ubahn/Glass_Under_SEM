@@ -33,3 +33,6 @@ data/
 slurm_*.out
 slurm_*.err
 config.py.bak
+
+# Bash patch scripts handed over by Claude: run from the project root, never committed
+/apply_*.sh

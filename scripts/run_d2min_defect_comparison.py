@@ -11,6 +11,6 @@ if __name__ == "__main__":
     stats = compute_d2min_defect_stats(trajectory)
     plot_d2min_defect_comparison(stats)
 
-    animate_d2min_defects_overlay_3d(trajectory)
+    # animate_d2min_defects_overlay_3d(trajectory)
 
     print("Done.")

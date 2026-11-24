@@ -8,9 +8,9 @@ from visualization.plot import plot_d2min_hole_distance
 if __name__ == "__main__":
     trajectory = load_trajectory(TRAJECTORY_FILE)
 
-    animate_d2min_holes_overlay_3d(trajectory)
 
-    stats = compute_d2min_hole_distance_stats(trajectory)
-    plot_d2min_hole_distance(stats)
+    stats = compute_d2min_hole_distance_stats(trajectory, n_bins=7)
+    plot_d2min_hole_distance(stats, smooth=True)
 
+    # animate_d2min_holes_overlay_3d(trajectory)
     print("Done.")

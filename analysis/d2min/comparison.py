@@ -5,13 +5,29 @@ from graph.defects import compute_degrees, classify_defects_statistical
 from analysis.d2min.compute import d2min_trajectory
 
 from scipy.spatial import cKDTree
+from ase.neighborlist import neighbor_list
+from analysis.soft_modes.source import thermal_baseline_series
 from holes.fft import compute_Vcell, compute_Vloch, find_hole_peaks, voxel_to_position
 from config import DEFECT_K, VOXEL_EDGE
 from cutoffs import CUTOFF_DICT
 
+def _d2min_excess_series(trajectory, d2min_series, cutoff):
+    """
+    D^2_min (vs. the mean structure) minus its expected thermal value (thermal
+    baseline, reference="mean"), per atom and frame -- the same "excess" as in
+    analysis/soft_modes/source.py (definition in that file's header).
+    """
+    atoms0 = trajectory[0]
+    i_idx, j_idx = neighbor_list("ij", atoms0, cutoff)
+    n_nb = np.bincount(i_idx, minlength=len(atoms0))
+    elements = np.array(atoms0.get_chemical_symbols())
+    baseline = thermal_baseline_series(trajectory, i_idx, j_idx, n_nb, elements, reference="mean")
+    return np.asarray(d2min_series, dtype=float) - baseline
+
+
 def compute_d2min_defect_stats(trajectory, cutoff=CUTOFF_DICT, k=DEFECT_K):
     """
-    Split D^2_min (relative to frame 0) into defect-atom and non-defect-
+    Split D^2_min (relative to the mean structure) into defect-atom and non-defect-
     atom populations, using a FIXED defect mask computed once from
     frame 0 — so any change in the two populations' d2min over time
     reflects dynamics, not a shifting defect definition.
@@ -26,11 +42,17 @@ def compute_d2min_defect_stats(trajectory, cutoff=CUTOFF_DICT, k=DEFECT_K):
     Z0 = g0.x.view(-1)
     mask = np.asarray(classify_defects_statistical(degrees0, Z0, k=k))
 
+    excess_series = _d2min_excess_series(trajectory, d2min_series, cutoff)
+
     mean_defect, mean_nondefect = [], []
     median_defect, median_nondefect = [], []
+    mean_defect_excess, mean_nondefect_excess = [], []
 
     for i in range(len(frame_indices)):
         d2min = d2min_series[i]
+        excess = excess_series[i]
+        mean_defect_excess.append(np.nanmean(excess[mask]) if mask.any() else np.nan)
+        mean_nondefect_excess.append(np.nanmean(excess[~mask]) if (~mask).any() else np.nan)
         mean_defect.append(np.nanmean(d2min[mask]) if mask.any() else np.nan)
         mean_nondefect.append(np.nanmean(d2min[~mask]) if (~mask).any() else np.nan)
         median_defect.append(np.nanmedian(d2min[mask]) if mask.any() else np.nan)
@@ -42,6 +64,8 @@ def compute_d2min_defect_stats(trajectory, cutoff=CUTOFF_DICT, k=DEFECT_K):
         "mean_nondefect": np.array(mean_nondefect),
         "median_defect": np.array(median_defect),
         "median_nondefect": np.array(median_nondefect),
+        "mean_defect_excess": np.array(mean_defect_excess),        # D^2_min minus its thermal baseline
+        "mean_nondefect_excess": np.array(mean_nondefect_excess),
         "defect_fraction": mask.mean(),  # now a single fixed number, not a series
         "mask": mask,
     }
@@ -66,13 +90,17 @@ def compute_d2min_hole_distance_stats(trajectory, cutoff=CUTOFF_DICT,
         trajectory, t0=0, frame_step=1, cutoff=cutoff,
     )
  
+    excess_series = _d2min_excess_series(trajectory, d2min_series, cutoff)
+
     n_frames = len(frame_indices)
     bin_means = np.full((n_frames, n_bins), np.nan)
+    bin_means_excess = np.full((n_frames, n_bins), np.nan)
     bin_edges = np.full((n_frames, n_bins + 1), np.nan)
  
     for i, frame in enumerate(frame_indices):
         atoms = trajectory[frame]
         d2min = d2min_series[i]
+        excess = excess_series[i]
  
         Vcell = compute_Vcell(atoms, voxel_edge)
         Vloch = compute_Vloch(Vcell, voxel_edge)
@@ -93,9 +121,11 @@ def compute_d2min_hole_distance_stats(trajectory, cutoff=CUTOFF_DICT,
             mask = bin_idx == b
             if mask.any():
                 bin_means[i, b] = np.nanmean(d2min[mask])
+                bin_means_excess[i, b] = np.nanmean(excess[mask])
  
     return {
         "frame_indices": np.array(frame_indices),
         "bin_means": bin_means,  # shape (n_frames, n_bins); column 0 = nearest to holes
+        "bin_means_excess": bin_means_excess,  # same shape; D^2_min minus its thermal baseline
         "bin_edges": bin_edges,  # shape (n_frames, n_bins+1), Å; quantile edges, recomputed per frame
     }

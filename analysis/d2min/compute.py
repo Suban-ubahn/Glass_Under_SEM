@@ -17,6 +17,7 @@ import numpy as np
 from ase.neighborlist import neighbor_list
 
 from cutoffs import CUTOFF_DICT
+from utils import unwrap_positions, compute_displacements
 
 
 def compute_d2min(atoms_ref, atoms_cur, cutoff=CUTOFF_DICT, min_neighbors=4):
@@ -128,32 +129,54 @@ def compute_d2min(atoms_ref, atoms_cur, cutoff=CUTOFF_DICT, min_neighbors=4):
     return d2min, F_all
 
 
+def mean_structure_positions(trajectory):
+    """
+    (N, 3) time-average position of every atom over the whole trajectory
+    (positions unwrapped first, see utils.unwrap_positions) -- the "average
+    structure" used as the D^2_min reference.
+    """
+    positions = np.array([a.positions for a in trajectory])
+    box = np.array([a.cell.array.diagonal() for a in trajectory])
+    _, mean_positions = compute_displacements(unwrap_positions(positions, box))
+    return mean_positions
+
+
 def d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=CUTOFF_DICT,
-                     reference_positions=None):
+                     reference_positions=None, reference="mean"):
     """
     Compute D^2_min at every frame relative to a fixed reference
-    frame t0, across a full loaded trajectory.
+    structure, across a full loaded trajectory. By default the reference
+    is the average structure of the whole trajectory (reference="mean").
 
     Parameters
     ----------
     trajectory : list of ase.Atoms
     t0 : int
-        Index of the reference frame.
+        Index of the reference frame. With reference="mean" only its cell
+        and species are used (the positions are the mean structure).
     frame_step : int
         Stride between compared frames (1 = every frame).
     cutoff : float or dict — see compute_d2min's docstring.
     reference_positions : (N, 3) array, optional
-        If given (e.g. the mean structure from
-        utils.compute_displacements(utils.unwrap_positions(...))), the
-        reference configuration is trajectory[t0] with its positions
-        replaced by these, instead of trajectory[t0] itself.
+        If given, the reference configuration is trajectory[t0] with its
+        positions replaced by these (overrides `reference`).
+    reference : "mean" (default) or "first"
+        "mean": the average structure of the whole trajectory
+        (mean_structure_positions). "first": trajectory[t0] itself, so
+        D^2_min(t0 -> t) grows from zero -- needed where a field that
+        starts at a fixed frame is wanted (e.g. the onset-time test in
+        scripts/run_soft_mode_tls_pipeline.py).
 
     Returns
     -------
     d2min_series : list of (N,) np.ndarray — one per compared frame
     frame_indices : list of int — which frames were compared to the reference
     """
+    if reference not in ("mean", "first"):
+        raise ValueError(f"reference must be 'mean' or 'first', got {reference!r}")
     atoms_ref = trajectory[t0]
+    if reference_positions is None and reference == "mean":
+        reference_positions = mean_structure_positions(trajectory)
     if reference_positions is not None:
         atoms_ref = atoms_ref.copy()
         atoms_ref.positions = reference_positions

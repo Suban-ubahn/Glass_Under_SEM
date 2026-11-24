@@ -20,7 +20,7 @@
 # and the difference between numerical resolution and statistical accuracy are in the header of
 # analysis/soft_modes/local_pca.py. All parameters are in config.py (LOCAL_PCA_*).
 #
-# Outputs go to outputs/run_local_pca/ (see utils.get_output_dir()).
+# Outputs go to outputs/run_local_pca_<tag>/ (see utils.get_output_dir()).
 # =============================================================
 
 import os

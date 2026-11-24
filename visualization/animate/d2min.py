@@ -30,10 +30,10 @@ from analysis.d2min.compute import d2min_consecutive_trajectory, d2min_trajector
 def animate_d2min_2d(trajectory, cutoff=CUTOFF_DICT, save_path=None):
     """
     Animate atoms at their actual (x, y) positions each frame,
-    colored by D^2_min relative to frame 0.
+    colored by D^2_min relative to the mean structure.
 
-    For every frame t, D^2_min is calculated between frame 0
-    and frame t.
+    For every frame t, D^2_min is calculated between the mean
+    structure of the trajectory and frame t.
 
     The color scale is fixed using the 99th percentile of the
     final-frame D^2_min values, so the final animation frame
@@ -47,7 +47,7 @@ def animate_d2min_2d(trajectory, cutoff=CUTOFF_DICT, save_path=None):
 
     print("Creating D^2_min 2D animation")
 
-    # Calculate D^2_min relative to frame 0 for every frame.
+    # Calculate D^2_min relative to the mean structure for every frame.
     d2min_series, frame_indices = d2min_trajectory(
         trajectory,
         t0=0,
@@ -102,7 +102,7 @@ def animate_d2min_2d(trajectory, cutoff=CUTOFF_DICT, save_path=None):
         ax.set_ylabel("y (A)")
 
         ax.set_title(
-            f"D²_min relative to frame 0 (Frame {frame})"
+            f"D²_min relative to the mean structure (Frame {frame})"
         )
         ax.set_aspect("equal")
 
@@ -179,10 +179,10 @@ def animate_d2min_3d(
 ):
     """
     Animate atoms in 3D at their real (x, y, z) positions,
-    colored by D^2_min relative to frame 0.
+    colored by D^2_min relative to the mean structure.
 
-    For every frame t, D^2_min is calculated between frame 0
-    and frame t.
+    For every frame t, D^2_min is calculated between the mean
+    structure of the trajectory and frame t.
 
     The color scale is fixed using the 99th percentile of the
     final-frame D^2_min values.
@@ -195,7 +195,7 @@ def animate_d2min_3d(
 
     print("Creating D^2_min 3D animation")
 
-    # Calculate D^2_min relative to frame 0 for every frame.
+    # Calculate D^2_min relative to the mean structure for every frame.
     d2min_series, frame_indices = d2min_trajectory(
         trajectory,
         t0=0,
@@ -261,7 +261,7 @@ def animate_d2min_3d(
         ax.set_zlabel("z (A)")
 
         ax.set_title(
-            f"D²_min relative to frame 0 (Frame {frame})"
+            f"D²_min relative to the mean structure (Frame {frame})"
         )
         ax.view_init(
             elev=elev,
@@ -337,14 +337,14 @@ def animate_d2min_defects_overlay_3d(
     azim=45,
 ):
     """
-    3D animation overlaying D^2_min relative to frame 0 with defect
+    3D animation overlaying D^2_min relative to the mean structure with defect
     clusters and their bonds.
 
     Non-defect atoms are shown very faintly in the background so that
     defect clusters remain visually prominent.
 
     D^2_min:
-        - fixed reference frame = frame 0
+        - fixed reference = mean structure of the trajectory
         - color scale fixed using the 99th percentile of the final frame
         - shown with the Blues colormap
 
@@ -368,7 +368,7 @@ def animate_d2min_defects_overlay_3d(
     print("Creating D^2_min / defects overlay animation")
 
     # ------------------------------------------------------------
-    # D^2_min relative to frame 0
+    # D^2_min relative to the mean structure
     # ------------------------------------------------------------
 
     d2min_series, frame_indices = d2min_trajectory(trajectory, t0=0, frame_step=1,  cutoff=cutoff)
@@ -580,7 +580,7 @@ def animate_d2min_defects_overlay_3d(
         ax.set_ylabel("y (A)")
         ax.set_zlabel("z (A)")
 
-        ax.set_title(f"D²_min & defect clusters relative to frame 0 " f"(Frame {frame})")
+        ax.set_title(f"D²_min & defect clusters relative to the mean structure " f"(Frame {frame})")
 
         ax.view_init(elev=elev, azim=azim)
 
@@ -605,7 +605,7 @@ def animate_d2min_holes_overlay_3d(
     azim=45,
 ):
     """
-    3D animation overlaying D^2_min (relative to frame 0) with FFT
+    3D animation overlaying D^2_min (relative to the mean structure) with FFT
     hole peaks re-detected independently on every frame.
 
     All atoms are shown very faintly and colored by D^2_min.
@@ -623,7 +623,7 @@ def animate_d2min_holes_overlay_3d(
     print("Creating D^2_min / holes overlay animation")
 
     # ------------------------------------------------------------
-    # D^2_min relative to frame 0
+    # D^2_min relative to the mean structure
     # ------------------------------------------------------------
 
     d2min_series, frame_indices = d2min_trajectory(trajectory, t0=0, frame_step=1, cutoff=cutoff,)
@@ -791,7 +791,7 @@ def animate_d2min_holes_overlay_3d(
         ax.set_ylabel("y (A)")
         ax.set_zlabel("z (A)")
 
-        ax.set_title(f"D²_min & holes relative to frame 0 " f"(Frame {frame})")
+        ax.set_title(f"D²_min & holes relative to the mean structure " f"(Frame {frame})")
 
         ax.view_init(elev=elev, azim=azim)
         ax.legend(handles=legend_elements, loc="upper left", fontsize=7)
